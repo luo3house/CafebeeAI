@@ -102,6 +102,10 @@ jobs:
           echo "Configured key.properties; storeFile path relative to android/app."
 
       - name: Build signed github-flavor APK (android/app -> assembleGithubRelease, arm64-v8a)
+        env:
+          # Narrow native compilation to arm64-v8a only (flavor ndk.abiFilters only filters
+          # packaging; the ABI list for CMake build tasks comes from reactNativeArchitectures).
+          ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a
         run: npm run build:apk
 
       - name: Verify APK signature (must be release-signed, not debug)
