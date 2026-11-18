@@ -54,7 +54,10 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
           left={(p) => <List.Icon {...p} icon="git" />}
           onPress={() => navigation.navigate("GitConfig")}
         />
-        {Config.DEBUG === "1" && (
+        {/* Gate key is APP_DEBUG - never DEBUG: AGP owns BuildConfig.DEBUG implicitly, and
+            dotenv.gradle's String declaration collides with it (generated BuildConfig breaks
+            javac in both flavors). See AGENTS.md gotcha. */}
+        {Config.APP_DEBUG === "1" && (
           <>
             <Divider />
             <List.Item
