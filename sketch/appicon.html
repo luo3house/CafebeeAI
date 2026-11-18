@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en-US">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bauhaus Bee Chat Bubble App Icon - BG Switcher</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 24px;
+      background-color: #F8F9FA;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .icon-frame {
+      width: 240px;
+      height: 240px;
+      border-radius: 54px;
+      overflow: hidden;
+      border: 1.5px solid #E2E8F0;
+    }
+
+    .swatch-group {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .swatch-btn {
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 20px;
+      border: 1.5px solid #CBD5E1;
+      background: #FFFFFF;
+      color: #1E293B;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .swatch-btn.active {
+      border-color: #1A1A1A;
+      font-weight: 600;
+      background: #F1F5F9;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+      border: 1px solid rgba(0, 0, 0, 0.15);
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 12px;
+    }
+
+    .action-btn {
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #1A1A1A;
+      background-color: #FFD000;
+      border: 2px solid #1A1A1A;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+
+    .action-btn:hover {
+      background-color: #FFE047;
+    }
+
+    .action-btn.secondary {
+      background-color: #FFFFFF;
+      color: #1A1A1A;
+    }
+
+    .action-btn.secondary:hover {
+      background-color: #F5F5F5;
+    }
+
+    .tip {
+      font-size: 12px;
+      color: #64748B;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="icon-frame">
+    <svg id="app-icon-svg" version="1.1" xmlns="http://w3.org" viewBox="0 0 240 240" width="240" height="240">
+      <defs>
+        <clipPath id="bubble2x1Clip">
+          <path d="M 90 102 L 159 102 A 45 45 0 0 1 159 192 L 24 192 L 50 162 A 45 45 0 0 1 90 102 Z" />
+        </clipPath>
+      </defs>
+
+      <rect id="icon-bg" x="0" y="0" width="240" height="240" fill="#18181B" />
+
+      <g transform="rotate(34 128 134)">
+        <rect id="wing-back" x="52" y="114" width="78" height="34" rx="17" fill="#A5D8FF" fill-opacity="0.65" />
+      </g>
+
+      <line id="ant-line-1" x1="158" y1="104" x2="174" y2="74" stroke="#FFD000" stroke-width="5"
+        stroke-linecap="round" />
+      <circle id="ant-dot-1" cx="174" cy="74" r="7.5" fill="#FFD000" />
+      <line id="ant-line-2" x1="175" y1="110" x2="198" y2="85" stroke="#FFD000" stroke-width="5"
+        stroke-linecap="round" />
+      <circle id="ant-dot-2" cx="198" cy="85" r="8" fill="#FFD000" />
+
+      <g clip-path="url(#bubble2x1Clip)">
+        <rect x="20" y="98" width="190" height="98" fill="#FFD000" />
+
+        <g transform="rotate(-10 68 147)">
+          <path d="M 96 86 A 75 75 0 0 0 96 208 L 82 208 A 75 75 0 0 1 82 86 Z" fill="#1A1A1A" />
+          <path d="M 70 86 A 75 75 0 0 0 70 208 L 56 208 A 75 75 0 0 1 56 86 Z" fill="#1A1A1A" />
+          <path d="M 10 86 L 44 86 A 75 75 0 0 0 44 208 L 10 208 Z" fill="#1A1A1A" />
+        </g>
+
+        <path d="M 122 102 A 60 60 0 0 0 122 192" fill="none" stroke="#1A1A1A" stroke-width="4" stroke-opacity="0.22" />
+      </g>
+
+      <g transform="rotate(22 124 138)">
+        <rect id="wing-front" x="46" y="120" width="78" height="34" rx="17" fill="#D0EBFF" fill-opacity="0.82" />
+        <line x1="64" y1="137" x2="106" y2="137" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"
+          stroke-opacity="0.9" />
+      </g>
+
+      <rect x="146" y="132" width="9" height="26" rx="4.5" fill="#1A1A1A" />
+      <rect x="168" y="132" width="9" height="26" rx="4.5" fill="#1A1A1A" />
+    </svg>
+  </div>
+
+  <div class="swatch-group">
+    <button class="swatch-btn active" onclick="setTheme('dark', this)">
+      <span class="dot" style="background:#18181B;"></span>Charcoal Dark (#18181B)
+    </button>
+    <button class="swatch-btn" onclick="setTheme('paper', this)">
+      <span class="dot" style="background:#F4F1EA;"></span>Newsprint Warm (#F4F1EA)
+    </button>
+    <button class="swatch-btn" onclick="setTheme('cobalt', this)">
+      <span class="dot" style="background:#1D4ED8;"></span>Bauhaus Cobalt (#1D4ED8)
+    </button>
+  </div>
+
+  <div class="btn-group">
+    <button class="action-btn" onclick="downloadPNG()">Export 1024px App Icon (PNG)</button>
+    <button class="action-btn secondary" onclick="downloadSVG()">Export SVG Source</button>
+  </div>
+  <div class="tip">Auto-adjusts antennae & wing contrast when switching background colors</div>
+
+  <script>
+    function setTheme(theme, btn) {
+      document.querySelectorAll('.swatch-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const bg = document.getElementById('icon-bg');
+      const antColor = (theme === 'dark' || theme === 'cobalt') ? '#FFD000' : '#1A1A1A';
+      const wingBack = document.getElementById('wing-back');
+      const wingFront = document.getElementById('wing-front');
+
+      if (theme === 'dark') {
+        bg.setAttribute('fill', '#18181B');
+        wingBack.setAttribute('fill', '#A5D8FF');
+        wingFront.setAttribute('fill', '#D0EBFF');
+      } else if (theme === 'paper') {
+        bg.setAttribute('fill', '#F4F1EA');
+        wingBack.setAttribute('fill', '#A5D8FF');
+        wingFront.setAttribute('fill', '#D0EBFF');
+      } else if (theme === 'cobalt') {
+        bg.setAttribute('fill', '#1D4ED8');
+        wingBack.setAttribute('fill', '#FFFFFF');
+        wingFront.setAttribute('fill', '#FFFFFF');
+      }
+
+      ['ant-line-1', 'ant-line-2'].forEach(id => document.getElementById(id).setAttribute('stroke', antColor));
+      ['ant-dot-1', 'ant-dot-2'].forEach(id => document.getElementById(id).setAttribute('fill', antColor));
+    }
+
+    function downloadPNG() {
+      const svg = document.getElementById('app-icon-svg');
+      const serializer = new XMLSerializer();
+      const svgStr = serializer.serializeToString(svg);
+      const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+
+      const img = new Image();
+      img.onload = function () {
+        const targetSize = 1024;
+        const canvas = document.createElement('canvas');
+        canvas.width = targetSize;
+        canvas.height = targetSize;
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, targetSize, targetSize);
+        URL.revokeObjectURL(url);
+
+        canvas.toBlob(function (blob) {
+          triggerDownload(URL.createObjectURL(blob), 'Bauhaus-BeeChat-AppIcon-1024.png');
+        }, 'image/png');
+      };
+      img.src = url;
+    }
+
+    function downloadSVG() {
+      const svg = document.getElementById('app-icon-svg');
+      const serializer = new XMLSerializer();
+      const svgStr = serializer.serializeToString(svg);
+      const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+      triggerDownload(URL.createObjectURL(blob), 'Bauhaus-BeeChat-AppIcon.svg');
+    }
+
+    function triggerDownload(url, filename) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  </script>
+
+</body>
+
+</html>

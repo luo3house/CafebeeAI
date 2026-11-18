@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__APP_NAME__ sandbox debugger</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1b1e24; --panel2: #22262e; --line: #2e333d;
+    --fg: #d8dce3; --dim: #8b93a1; --accent: #7aa2f7; --danger: #f7768e;
+    --ok: #9ece6a; --warn: #e0af68;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; background: var(--bg); color: var(--fg);
+         font: 13px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+           padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 14px; margin: 0 6px 0 0; font-weight: 600; }
+  .pill { padding: 2px 10px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--line);
+          color: var(--dim); font: 12px ui-monospace, Menlo, monospace; }
+  .pill b { color: var(--fg); font-weight: 600; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.on { background: var(--ok); } .dot.off { background: var(--dim); }
+  button { background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+           border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: #2d4a7a; border-color: #3d5f9e; }
+  button.danger  { background: #5a2733; border-color: #7c3747; }
+  button:disabled { opacity: .45; cursor: default; }
+  label.ck { color: var(--dim); user-select: none; display: inline-flex; align-items: center; gap: 4px; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #side { width: 340px; min-width: 240px; display: flex; flex-direction: column;
+          border-right: 1px solid var(--line); background: var(--panel); }
+  #side .tools { padding: 8px; display: flex; gap: 6px; flex-direction: column; border-bottom: 1px solid var(--line); }
+  #side input[type=text] { background: var(--bg); border: 1px solid var(--line); color: var(--fg);
+          border-radius: 6px; padding: 5px 8px; font-size: 12px; width: 100%; }
+  #tree { flex: 1; overflow: auto; padding: 6px 0 24px; font: 12px ui-monospace, Menlo, monospace; }
+  .row { padding: 1px 10px 1px 8px; white-space: nowrap; cursor: pointer; display: flex; }
+  .row:hover { background: var(--panel2); }
+  .row.sel { background: #2a3348; }
+  .row .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .row .sz { color: var(--dim); margin-left: 8px; font-size: 11px; }
+  .row.dir .nm { color: var(--warn); }
+  .row .tw { width: 14px; color: var(--dim); }
+  #editor { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #pathbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+             border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  #pathbar .rel { font: 12px ui-monospace, Menlo, monospace; color: var(--accent);
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+  #meta { color: var(--dim); font-size: 11px; }
+  #note { padding: 6px 12px; color: var(--warn); background: #26221a; border-bottom: 1px solid var(--line); }
+  #note.secret { color: var(--danger); background: #2b1c20; }
+  textarea#code { flex: 1; width: 100%; resize: none; border: 0; outline: none;
+                  background: var(--bg); color: var(--fg); padding: 12px 14px;
+                  font: 12.5px/1.6 ui-monospace, Menlo, Consolas, monospace; tab-size: 2; }
+  #status { padding: 5px 12px; border-top: 1px solid var(--line); background: var(--panel);
+            font-size: 12px; color: var(--dim); min-height: 26px; }
+  #status.err { color: var(--danger); }
+  #status.ok { color: var(--ok); }
+  .spacer { flex: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>__APP_NAME__ sandbox</h1>
+  <span class="pill" id="devPill">device <b>?</b></span>
+  <span class="pill" id="pkgPill">pkg <b>?</b></span>
+  <span class="pill"><span class="dot off" id="appDot"></span><span id="appTxt">app ?</span></span>
+  <span class="spacer"></span>
+  <button id="btnPull" title="re-pull snapshot from device">Pull</button>
+  <label class="ck"><input type="checkbox" id="autoPull"> auto 10s</label>
+  <button id="btnStart">Start</button>
+  <button id="btnRestart" class="primary">Restart</button>
+  <button id="btnStop" class="danger">Kill</button>
+</header>
+<main>
+  <section id="side">
+    <div class="tools">
+      <div style="display:flex;gap:6px">
+        <input type="text" id="filter" placeholder="filter paths…" style="flex:1">
+        <button id="btnNew" style="flex:0 0 auto" title="Create a new file (saved on Save)">New</button>
+      </div>
+      <label class="ck"><input type="checkbox" id="showAll"> show everything under files/</label>
+    </div>
+    <div id="tree"><div class="row" style="color:var(--dim)">(empty)</div></div>
+  </section>
+  <section id="editor">
+    <div id="pathbar">
+      <span class="rel" id="selRel">select a file</span>
+      <span id="meta"></span>
+      <span class="spacer"></span>
+      <label class="ck"><input type="checkbox" id="restartAfter" checked> restart app after write</label>
+      <button id="btnSave" class="primary" disabled>Save</button>
+      <button id="btnDownload" disabled>Download</button>
+      <button id="btnDelete" class="danger" disabled>Delete</button>
+    </div>
+    <div id="note" hidden></div>
+    <textarea id="code" wrap="off" spellcheck="false" hidden></textarea>
+    <div id="status"></div>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const state = { nodes: [], selected: null, original: null, collapsed: new Set(), writable: false };
+
+function setStatus(msg, kind) { const el = $("status"); el.textContent = msg; el.className = kind || ""; if (msg) console.log("[sandbox]", msg); }
+function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function fmtSize(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(2) + " MB"; }
+function fmtTime(ms) { return ms ? new Date(ms).toLocaleTimeString() : "-"; }
+function dirty() { return state.selected && $("code").value !== state.original; }
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, ...(body !== undefined ? { body } : {}) });
+  const ct = r.headers.get("content-type") || "";
+  const data = ct.includes("json") ? await r.json() : { error: await r.text() };
+  if (!r.ok) throw new Error((data && data.error) || (method + " " + url + " -> " + r.status));
+  return data;
+}
+
+let busy = false;
+async function guarded(fn) {
+  if (busy) return false;
+  busy = true;
+  try { document.body.style.cursor = "progress"; return await fn(); }
+  catch (e) { setStatus("ERROR: " + e.message, "err"); return false; }
+  finally { busy = false; document.body.style.cursor = ""; }
+}
+
+// ---------------------------------------------------------------- tree
+async function loadTree(refresh) {
+  await guarded(async () => {
+    const data = await api("GET", "/api/tree" + (refresh ? "?refresh=1" : ""));
+    state.nodes = data.nodes;
+    await pollStatus();
+    render();
+  });
+}
+
+async function pollStatus() {
+  const s = await api("GET", "/api/status");
+  const dev = s.devices.find(d => d.state === "device");
+  $("devPill").innerHTML = "device <b>" + esc(dev ? dev.serial : "NONE") + "</b>";
+  $("pkgPill").innerHTML = "pkg <b>" + esc(s.pkg) + "</b>";
+  const on = !!s.pid;
+  $("appDot").className = "dot " + (on ? "on" : "off");
+  $("appTxt").textContent = on ? "app pid " + s.pid : "app stopped";
+  $("appTxt").title = "last pull " + fmtTime(s.lastPullAt);
+  return dev;
+}
+
+// tokens substituted by the dev server at serve time (dev-sandbox-server.ts)
+const ROOT = "__SANDBOX_ROOT__";
+
+function visibleNodes() {
+  const showAll = $("showAll").checked;
+  const f = $("filter").value.trim().toLowerCase();
+  let ns = state.nodes.filter(n => !n.rel.startsWith(".debug-fs"));
+  if (!showAll) ns = ns.filter(n => n.rel === ROOT || n.rel.startsWith(ROOT + "/"));
+  if (f) ns = ns.filter(n => n.rel.toLowerCase().includes(f));
+  return ns;
+}
+
+function render() {
+  const ns = visibleNodes();
+  const dirs = new Map();            // parent -> children rows
+  const have = new Set(ns.map(n => n.rel));
+  let shown = ns;
+  if ($("filter").value.trim()) {    // pull ancestors of matches into view
+    const extra = new Map();
+    for (const n of ns) {
+      const parts = n.rel.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        const rel = parts.slice(0, i).join("/");
+        if (rel === n.rel || (!have.has(rel))) {
+          if (!extra.has(rel)) extra.set(rel, { rel, dir: true, size: 0, mtime: 0 });
+        }
+      }
+    }
+    shown = [...ns, ...extra.values()];
+  }
+  for (const n of shown) {
+    const parent = n.rel.includes("/") ? n.rel.slice(0, n.rel.lastIndexOf("/")) : "";
+    if (!dirs.has(parent)) dirs.set(parent, []);
+    dirs.get(parent).push(n);
+  }
+  const html = [];
+  const walk = (parent, depth) => {
+    const kids = (dirs.get(parent) || []).slice().sort((a, b) => (a.dir === b.dir ? a.rel.localeCompare(b.rel) : a.dir ? -1 : 1));
+    for (const k of kids) {
+      const base = k.rel.slice((parent ? parent.length + 1 : 0));
+      const isSel = state.selected === k.rel;
+      const style = "padding-left:" + (8 + depth * 14) + "px;" + (isSel ? "background:#2a3348;" : "");
+      const tw = k.dir ? (state.collapsed.has(k.rel) ? "+" : "-") : "";
+      html.push('<div class="row ' + (k.dir ? "dir" : "file") + (isSel ? " sel" : "") + '" rel="' + esc(k.rel)
+        + '" dir="' + (k.dir ? 1 : 0) + '" style="' + style + '"><span class="tw">' + tw + '</span><span class="nm">'
+        + esc(base) + '</span>' + (k.dir ? "" : '<span class="sz">' + fmtSize(k.size) + "</span>") + "</div>");
+      if (k.dir && !state.collapsed.has(k.rel)) walk(k.rel, depth + 1);
+    }
+  };
+  walk("", 0);
+  $("tree").innerHTML = html.join("") || '<div class="row">(no entries)</div>';
+}
+
+// ---------------------------------------------------------------- editor
+async function selectFile(rel) {
+  //if (dirty() && !confirm("Discard unsaved edits in " + state.selected + "?")) return;
+  state.selected = rel;
+  render();
+  $("selRel").textContent = rel;
+  const note = $("note"); note.hidden = true;
+  await guarded(async () => {
+    const f = await api("GET", "/api/file?rel=" + encodeURIComponent(rel));
+    $("meta").textContent = fmtSize(f.size) + "  ·  mtime " + fmtTime(f.mtime);
+    state.writable = !f.binary && !f.tooLarge;
+    const code = $("code");
+    if (f.binary || f.tooLarge) {
+      code.hidden = true;
+      note.hidden = false;
+      note.textContent = f.binary
+        ? "Binary file - not editable here. Use Download to inspect, or Save overwrites it with text."
+        : "File larger than 2 MB - preview disabled. Use Download.";
+      note.className = "";
+      state.original = null;
+    } else {
+      code.hidden = false;
+      code.value = f.content;
+      state.original = f.content;
+      if (/(^|\/)secrets\.json$/.test(rel)) {
+        note.hidden = false; note.className = "secret";
+        note.textContent = "secrets.json holds API keys - edits are written back to the device sandbox.";
+      }
+    }
+    $("btnSave").disabled = !state.writable;
+    $("btnDelete").disabled = false;
+    $("btnDownload").disabled = false;
+  });
+}
+
+function selectDir(rel) {
+  state.selected = rel; state.original = null; state.writable = false;
+  $("selRel").textContent = rel + "/";
+  let n = 0, bytes = 0;
+  for (const e of state.nodes) if (!e.dir && e.rel.startsWith(rel + "/")) { n++; bytes += e.size; }
+  $("meta").textContent = n + " files · " + fmtSize(bytes) + " total (from last pull)";
+  $("code").hidden = true; $("code").value = "";
+  const note = $("note"); note.hidden = false; note.className = "";
+  note.textContent = "Folder selected - Save does not apply; Delete removes the whole tree on the device.";
+  $("btnSave").disabled = true;
+  $("btnDelete").disabled = false;
+  $("btnDownload").disabled = true;
+  render();
+}
+
+function setNew() {
+  const rel = prompt(`New file path (relative to the app files/ dir, must stay inside ${ROOT}/):`, `${ROOT}/debug-note.md`);
+  if (!rel) return;
+  if (!rel.startsWith(ROOT + "/") || rel.split("/").some(p => !/^[A-Za-z0-9._-]+$/.test(p) || p === "..")) {
+    setStatus(`ERROR: path must be under ${ROOT}/ with safe characters only`, "err"); return;
+  }
+  if (state.nodes.some(n => n.rel === rel && !n.dir)) { selectFile(rel); return; }
+  state.selected = rel; state.original = ""; state.writable = true;
+  $("selRel").textContent = rel + "  (new)";
+  $("meta").textContent = "";
+  $("note").hidden = true;
+  $("code").hidden = false; $("code").value = "";
+  $("btnSave").disabled = false; $("btnDelete").disabled = true; $("btnDownload").disabled = true;
+  render();
+}
+
+function saveFile() {
+  const rel = state.selected;
+  if (!rel) return;
+  if (!confirm("Write " + rel + "?" + ($("restartAfter").checked ? "\n\nThis force-stops the running app first, then cold-restarts it." : "\n\nThis force-stops the running app first (no restart)."))) return;
+  guarded(async () => {
+    const restart = $("restartAfter").checked ? "1" : "0";
+    const r = await api("PUT", "/api/file?rel=" + encodeURIComponent(rel) + "&restart=" + restart, $("code").value);
+    state.original = $("code").value;
+    await pollStatus();
+    await loadTree(true);
+    setStatus("saved " + r.bytes + " B -> " + rel + (r.wasRunning ? (r.restarted ? " · app was running: force-stopped & restarted" : " · app was running: force-stopped (start it to reload)") : "") + " · " + new Date().toLocaleTimeString(), "ok");
+  });
+}
+
+function deleteFile() {
+  const rel = state.selected;
+  if (!rel) return;
+  const isDir = state.nodes.some(n => n.dir && n.rel === rel);
+  if (!confirm("DELETE " + rel + (isDir ? "/" : "") + (isDir ? " and everything below it" : "") + " from the device sandbox?\n\nThe app is force-stopped first (its memory state can never write it back afterwards).")) return;
+  guarded(async () => {
+    const restart = $("restartAfter").checked ? "1" : "0";
+    const r = await api("DELETE", "/api/file?rel=" + encodeURIComponent(rel) + "&restart=" + restart);
+    state.selected = null; state.original = null;
+    $("code").hidden = true; $("code").value = "";
+    $("selRel").textContent = "select a file"; $("meta").textContent = ""; $("note").hidden = true;
+    $("btnSave").disabled = $("btnDelete").disabled = $("btnDownload").disabled = true;
+    await loadTree(true);
+    setStatus("deleted " + rel + (isDir ? " recursively" : "") + (r.wasRunning && r.restarted ? " · app restarted" : ""), "ok");
+  });
+}
+
+function appAction(which) {
+  guarded(async () => {
+    await api("POST", "/api/app/" + which);
+    await new Promise(r => setTimeout(r, 1200));   // give am time to fork/start
+    await pollStatus();
+    setStatus(which === "stop" ? "app force-stopped" : which + " sent", "ok");
+  });
+}
+
+// ---------------------------------------------------------------- wiring
+$("tree").addEventListener("click", e => {
+  const row = e.target.closest(".row[rel]");
+  if (!row) return;
+  const rel = row.getAttribute("rel");
+  if (row.getAttribute("dir") === "1") {
+    // if (dirty() && !confirm("Discard unsaved edits in " + state.selected + "?")) return;
+    state.collapsed.has(rel) ? state.collapsed.delete(rel) : state.collapsed.add(rel);
+    selectDir(rel);
+  } else selectFile(rel);
+});
+$("btnPull").onclick = () => guarded(async () => { const r = await api("POST", "/api/pull"); await pollStatus(); render(); setStatus("pulled " + r.files + " entries (" + fmtSize(r.tarBytes) + " tar) at " + fmtTime(r.lastPullAt) + (dirty() ? " - editor kept (unsaved edits)" : ""), "ok"); });
+$("btnStart").onclick = () => appAction("start");
+$("btnStop").onclick = () => appAction("stop");
+$("btnRestart").onclick = () => guarded(async () => { await api("POST", "/api/app/stop"); await new Promise(r => setTimeout(r, 400)); await api("POST", "/api/app/start"); await new Promise(r => setTimeout(r, 1200)); await pollStatus(); setStatus("app restarted (cold start reloads all state from disk)", "ok"); });
+$("btnNew").onclick = setNew;
+$("btnSave").onclick = saveFile;
+$("btnDelete").onclick = deleteFile;
+$("btnDownload").onclick = () => { if (state.selected) window.location.href = "/raw?rel=" + encodeURIComponent(state.selected); };
+$("filter").addEventListener("input", render);
+$("showAll").addEventListener("change", render);
+$("code").addEventListener("input", () => { $("btnSave").disabled = !state.writable ? true : !dirty(); });
+document.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); if (!$("btnSave").disabled) saveFile(); }
+});
+
+let autoTimer = null;
+$("autoPull").addEventListener("change", () => {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  if ($("autoPull").checked) autoTimer = setInterval(() => { if (!dirty() && !busy) loadTree(true); }, 10000);
+});
+
+(async function boot() {
+  try { await pollStatus(); } catch (e) { setStatus("ERROR: " + e.message + " (is adb connected with a reachable device?)", "err"); }
+  await loadTree(true);
+})();
+</script>
+</body>
+</html>

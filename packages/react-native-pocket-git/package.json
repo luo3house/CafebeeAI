@@ -1,0 +1,26 @@
+{
+  "name": "react-native-pocket-git",
+  "version": "0.1.0",
+  "description": "JGit-based async git client native module for CafebeeAI (upload / sync / clone)",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "react-native": "src/index.ts",
+  "codegenConfig": {
+    "name": "pocketgitSpec",
+    "type": "modules",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.pocketllm.pocketgit"
+    }
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "keywords": [
+    "react-native",
+    "git",
+    "jgit"
+  ],
+  "license": "MIT"
+}
