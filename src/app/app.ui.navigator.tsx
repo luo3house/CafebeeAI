@@ -34,8 +34,8 @@ import { FormFullScreen } from "../ui/screens/chat/form-full.screen"
 import { ConversationsScreen } from "../ui/screens/chat/conversations.screen"
 import { ModelPickerScreen } from "../ui/screens/chat/model-picker.screen"
 import { DebugScreen } from "../ui/screens/debug/debug.screen"
-import { GitSyncScreen } from "../ui/screens/git/git-sync.screen"
-import { GitSetupScreen } from "../ui/screens/git/git-setup.screen"
+import { GitControlScreen } from "../ui/screens/git/git-control.screen"
+import { GitRemoteScreen } from "../ui/screens/git/git-remote.screen"
 import { GitCloneScreen } from "../ui/screens/git/git-clone.screen"
 import { GitCredentialsScreen } from "../ui/screens/settings/git-credentials.screen"
 import { GitOptionsScreen } from "../ui/screens/settings/git-options.screen"
@@ -66,8 +66,8 @@ export type RootStackParamList = {
   Conversations: undefined
   ModelPicker: undefined
   Debug: undefined
-  GitSync: { projectId: string }
-  GitSetup: { projectId: string }
+  GitControl: { projectId: string }
+  GitRemote: { projectId: string }
   GitClone: { projectId: string }
   GitConfig: undefined
   GitCredentials: undefined
@@ -167,8 +167,8 @@ export function RootNavigator() {
         <Stack.Screen name="Conversations" component={ConversationsScreen} options={{ title: "Conversations" }} />
         <Stack.Screen name="ModelPicker" component={ModelPickerScreen} options={{ title: "Select Provider / Model" }} />
         <Stack.Screen name="Debug" component={DebugScreen} options={{ title: "Debug" }} />
-        <Stack.Screen name="GitSync" component={GitSyncScreen} options={{ title: "Git Sync" }} />
-        <Stack.Screen name="GitSetup" component={GitSetupScreen} options={{ title: "Git Settings" }} />
+        <Stack.Screen name="GitControl" component={GitControlScreen} options={{ title: "Git" }} />
+        <Stack.Screen name="GitRemote" component={GitRemoteScreen} options={{ title: "Remote" }} />
         <Stack.Screen name="GitClone" component={GitCloneScreen} options={{ title: "Git Clone" }} />
         <Stack.Screen name="GitConfig" component={GitConfigScreen} options={{ title: "Global Git Config" }} />
         <Stack.Screen name="GitCredentials" component={GitCredentialsScreen} options={{ title: "Git Credentials" }} />

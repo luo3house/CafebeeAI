@@ -97,6 +97,9 @@ if (releaseBuildRequested && !keystorePropertiesFile.exists()) {
 // (avoid calling versionCode/versionName with an inline expression per flavor).
 def dotenvVersionCode = (project.env.get("APP_VERSION_CODE") ?: "1").toInteger()
 def dotenvVersionName = project.env.get("APP_VERSION") ?: "0.1.0"
+// Rule 32: launcher label = APP_NAME + per-flavor APP_LABEL_SUFFIX (dev "_dev", github empty).
+// Appends only to the manifest app_name resValue; in-app brand/prompt/git author keep APP_NAME.
+def dotenvAppLabel = (project.env.get("APP_NAME") ?: "CafebeeAI") + (project.env.get("APP_LABEL_SUFFIX") ?: "")
 
 /**
  * Set this to true to run Proguard to obfuscate Java bytecode in Release builds.
@@ -180,7 +183,7 @@ android {
             applicationId project.env.get("APP_ID") ?: "io.github.luo3house.cafebeeai.dev"
             versionCode dotenvVersionCode
             versionName dotenvVersionName
-            resValue "string", "app_name", project.env.get("APP_NAME") ?: "CafebeeAI"
+            resValue "string", "app_name", dotenvAppLabel
         }
         github {
             dimension "version"
@@ -190,7 +193,7 @@ android {
             applicationId project.env.get("APP_ID") ?: "io.github.luo3house.cafebeeai"
             versionCode dotenvVersionCode
             versionName dotenvVersionName
-            resValue "string", "app_name", project.env.get("APP_NAME") ?: "CafebeeAI"
+            resValue "string", "app_name", dotenvAppLabel
         }
     }
     buildTypes {

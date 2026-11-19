@@ -1,16 +1,22 @@
 /**
  * File preview page (PageHeader title = the file basename with its extension, taken from route params).
  * In-app preview supports Markdown/TXT (source split by block via splitMarkdownBlocks and rendered through
- * MarkdownBlock inside a FlashList so multi-MB files stay virtualized), common code extensions - js/tsx/yaml/json/...
- * (isTextLike minus the md/txt set - rendered as a stack of CodeBlock chunks of CODE_CHUNK_LINES so long files
- * virtualize; language = file extension), and images (`.jpg/.jpeg/.png`, contain-fitted native Image view).
- * The preview size cap is 5 MB for every type (statOf before read/display).
- * The header three-dot menu is fixed: text/code previews get a "Text wrap" toggle (code blocks: horizontal
- * scroll <-> soft wrap), and every file gets "Open with..." (the real system open share path,
- * openFileExternally), so previewing never blocks external opening.
- * Unsupported type / over the preview cap / read failure: centered notice + "Open with..." button.
+ * MarkdownBlock inside a FlashList so multi-MB files stay virtualized) and images (`.jpg/.jpeg/.png`,
+ * contain-fitted native Image view).
+ * CODE-LIKE files (the rest of the isTextLike whitelist - js/tsx/yaml/json/.../.env/Dockerfile) are NOT
+ * previewed anymore: they render the unknown-type centered layout with the editable-file icon
+ * (file-edit-outline) and an inline [Edit] button next to [Open with...]. Edit opens the shared TextEditor
+ * page (uncontrolled input, validate defaults to pass, save = atomicWriteText back to the same path + a
+ * light "Saved" snackbar); this page re-reads the file on focus return.
+ * Two separate caps, both statOf'd at page entry (the editor is a lightweight tool, opening is the gate -
+ * pasting beyond the cap mid-edit is the user's own risk, nothing is re-checked at save):
+ * preview cap 5 MB (md/txt/images) vs edit cap 512 KB (md/txt also gate the menu's Edit item -
+ * over the cap the notice keeps only [Open with...] with "File too large to edit (over 512 KB).").
+ * The header three-dot menu: md/txt get "Text wrap" (horizontal scroll <-> soft wrap) plus "Edit" when
+ * within the edit cap; every file gets "Open with..." (openFileExternally), so previewing never blocks
+ * external opening. Unsupported type / over cap / read failure: centered notice + "Open with..." button.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Image, StyleSheet, Text, View } from "react-native"
 import { ActivityIndicator, Button, Icon, IconButton, Menu, useTheme } from "react-native-paper"
 import { fs } from "../../../app/app.ui.theme"
@@ -18,36 +24,27 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FlashList } from "@shopify/flash-list"
 import type { RootStackParamList } from "../../../app/app.ui.navigator"
-import { readText, statOf } from "../../../core/fs"
+import { atomicWriteText, readText, statOf } from "../../../core/fs"
 import { extname, isTextLike } from "../../../core/paths"
 import { openFileExternally } from "../../../core/import-export"
 import { MarkdownBlock, splitMarkdownBlocks } from "../../components/markdown"
-import { CodeBlock } from "../../components/code-block"
 import { showNotice } from "../../../state/notice"
+import { showToast } from "../../../state/toast"
 
 type Props = NativeStackScreenProps<RootStackParamList, "FilePreview">
 
 const MAX_PREVIEW_BYTES = 5 * 1024 * 1024
+const EDIT_MAX_BYTES = 512 * 1024
 const TEXT_PREVIEW_EXTENSIONS = new Set([".md", ".markdown", ".txt"])
 const IMAGE_PREVIEW_EXTENSIONS = new Set([".jpg", ".jpeg", ".png"])
-// Code files are stacked as fixed-line chunks so each FlashList cell stays viewport-sane (one giant Text would defeat
-// virtualization / clip under the horizontal ScrollView's maxHeight) and Copy mirrors GitHub's per-section action.
-const CODE_CHUNK_LINES = 64
-
-function chunkCodeLines(text: string): string[] {
-  if (text === "") return []
-  const lines = text.split("\n")
-  const out: string[] = []
-  for (let i = 0; i < lines.length; i += CODE_CHUNK_LINES) out.push(lines.slice(i, i + CODE_CHUNK_LINES).join("\n"))
-  return out
-}
 
 type PreviewKind = "text" | "code" | "image" | null
 
 type Phase =
   | { kind: "loading" }
   | { kind: "unsupported" }
-  | { kind: "too-large" }
+  | { kind: "code-edit" }
+  | { kind: "too-large"; cap: "preview" | "edit" }
   | { kind: "read-error" }
   | { kind: "empty" }
   | { kind: "image" }
@@ -59,11 +56,13 @@ export function FilePreviewScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets()
   const ext = extname(name)
   const previewKind: PreviewKind = TEXT_PREVIEW_EXTENSIONS.has(ext) ? "text" : IMAGE_PREVIEW_EXTENSIONS.has(ext) ? "image" : isTextLike(name) ? "code" : null
-  const codeLang = ext ? ext.slice(1) : name
   const [phase, setPhase] = useState<Phase>(() => (previewKind ? { kind: "loading" } : { kind: "unsupported" }))
+  const [sizeBytes, setSizeBytes] = useState<number | null>(null)
   const [wrap, setWrap] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState({ x: 0, y: insets.top + 8 })
+  const firstFocusRef = useRef(false)
 
   useEffect(() => {
     navigation.setOptions({
@@ -72,14 +71,40 @@ export function FilePreviewScreen({ navigation, route }: Props) {
     })
   }, [navigation, name])
 
+  // Rule 25: coming back from the editor must re-read the file; the first focus is the mount itself
+  useEffect(() => {
+    const unsub = navigation.addListener("focus", () => {
+      if (!firstFocusRef.current) {
+        firstFocusRef.current = true
+        return
+      }
+      setReloadKey((k) => k + 1)
+    })
+    return unsub
+  }, [navigation])
+
   useEffect(() => {
     if (!previewKind) return
     let alive = true
     ;(async () => {
       const stat = await statOf(path)
+      const size = stat ? Number(stat.size) : null
       if (!alive) return
-      if (stat && Number(stat.size) > MAX_PREVIEW_BYTES) {
-        setPhase({ kind: "too-large" })
+      setSizeBytes(size)
+      if (previewKind === "code") {
+        if (size === null) {
+          setPhase({ kind: "read-error" })
+          return
+        }
+        if (size > EDIT_MAX_BYTES) {
+          setPhase({ kind: "too-large", cap: "edit" })
+          return
+        }
+        setPhase({ kind: "code-edit" })
+        return
+      }
+      if (size !== null && size > MAX_PREVIEW_BYTES) {
+        setPhase({ kind: "too-large", cap: "preview" })
         return
       }
       if (previewKind === "image") {
@@ -90,7 +115,7 @@ export function FilePreviewScreen({ navigation, route }: Props) {
       try {
         const text = await readText(path)
         if (!alive) return
-        const units = previewKind === "code" ? chunkCodeLines(text) : splitMarkdownBlocks(text)
+        const units = splitMarkdownBlocks(text)
         setPhase(units.length ? { kind: "ready", units } : { kind: "empty" })
       } catch {
         if (alive) setPhase({ kind: "read-error" })
@@ -99,7 +124,7 @@ export function FilePreviewScreen({ navigation, route }: Props) {
     return () => {
       alive = false
     }
-  }, [previewKind, path])
+  }, [previewKind, path, reloadKey])
 
   const doOpen = useCallback(async () => {
     setMenuOpen(false)
@@ -110,17 +135,32 @@ export function FilePreviewScreen({ navigation, route }: Props) {
     }
   }, [name, path])
 
+  const doEdit = useCallback(async () => {
+    setMenuOpen(false)
+    try {
+      const content = await readText(path)
+      navigation.navigate("TextEditor", {
+        label: name,
+        initialText: content,
+        onSave: async (value) => {
+          await atomicWriteText(path, String(value ?? ""))
+          showToast("Saved")
+        },
+      })
+    } catch (err: any) {
+      showNotice(String(err?.message ?? err), { title: "Read failed" })
+    }
+  }, [navigation, name, path])
+
+  const canEdit = (previewKind === "code" || previewKind === "text") && sizeBytes !== null && sizeBytes <= EDIT_MAX_BYTES
+
   const renderItem = useCallback(
     ({ item }: { item: string }) => (
       <View style={styles.cell}>
-        {previewKind === "code" ? (
-          <CodeBlock code={item} language={codeLang} wrap={wrap} />
-        ) : (
-          <MarkdownBlock content={item} selectable wrap={wrap} />
-        )}
+        <MarkdownBlock content={item} selectable wrap={wrap} />
       </View>
     ),
-    [previewKind, codeLang, wrap],
+    [wrap],
   )
 
   const keyExtractor = useCallback((_: string, idx: number) => String(idx), [])
@@ -130,13 +170,15 @@ export function FilePreviewScreen({ navigation, route }: Props) {
       case "unsupported":
         return { icon: "file-question-outline", text: "Preview is not supported for this file type." }
       case "too-large":
-        return { icon: "file-document-outline", text: "File too large to preview (over 5 MB)." }
+        return phase.cap === "edit"
+          ? { icon: "file-edit-outline", text: "File too large to edit (over 512 KB)." }
+          : { icon: "file-document-outline", text: "File too large to preview (over 5 MB)." }
       case "read-error":
         return { icon: "eye-off-outline", text: "Cannot read this file." }
       default:
         return null
     }
-  }, [phase.kind])
+  }, [phase])
 
   return (
     <View style={styles.screen}>
@@ -149,7 +191,7 @@ export function FilePreviewScreen({ navigation, route }: Props) {
         }}
       />
       <Menu visible={menuOpen} onDismiss={() => setMenuOpen(false)} anchor={menuPos}>
-        {previewKind === "text" || previewKind === "code" ? (
+        {previewKind === "text" ? (
           <Menu.Item
             title={wrap ? "Text wrap: On" : "Text wrap: Off"}
             leadingIcon="wrap"
@@ -159,12 +201,36 @@ export function FilePreviewScreen({ navigation, route }: Props) {
             }}
           />
         ) : null}
+        {previewKind === "text" && canEdit ? (
+          <Menu.Item
+            title="Edit"
+            leadingIcon="pencil-outline"
+            onPress={() => {
+              void doEdit()
+            }}
+          />
+        ) : null}
         <Menu.Item title="Open with..." leadingIcon="open-in-new" onPress={doOpen} />
       </Menu>
 
       {phase.kind === "loading" ? (
         <View style={styles.center}>
           <ActivityIndicator color={theme.colors.primary} />
+        </View>
+      ) : phase.kind === "code-edit" ? (
+        <View style={styles.center}>
+          <Icon source="file-edit-outline" size={40} color={theme.colors.onSurfaceVariant} />
+          <Text style={[styles.noticeText, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 14) }]}>
+            This file can be edited here or opened with another app.
+          </Text>
+          <View style={styles.noticeActions}>
+            <Button mode="contained" icon="pencil-outline" onPress={() => void doEdit()}>
+              Edit
+            </Button>
+            <Button mode="outlined" onPress={doOpen}>
+              Open with...
+            </Button>
+          </View>
         </View>
       ) : phase.kind === "image" ? (
         <View style={[styles.imageWrap, { paddingBottom: 14 + insets.bottom }]}>
@@ -203,6 +269,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 14, paddingHorizontal: 24 },
   noticeText: { fontSize: 14, textAlign: "center" },
+  noticeActions: { flexDirection: "row", alignItems: "center", gap: 10 },
   cell: { paddingHorizontal: 14, paddingBottom: 2 },
   imageWrap: { flex: 1, justifyContent: "center", alignItems: "center", padding: 14 },
   image: { width: "100%", height: "100%" },

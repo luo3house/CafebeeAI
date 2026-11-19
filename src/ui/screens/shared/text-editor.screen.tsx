@@ -3,6 +3,8 @@
  * carries only a save icon button. Saving triggers the caller-provided async validate (default: fully pass),
  * then awaits onSave(value, text) - validation/save errors surface as a problem-notice confirm dialog and keep
  * the editor open, success goBack()s.
+ * The input is UNCONTROLLED (defaultValue + ref written by onChangeText, value read only at save): the page
+ * remounts per navigation and editing a 512 KB file never re-renders per keystroke (FilePreview edit gate).
  * Keyboard avoidance via useKeyboardLift (Android API 35+ edge-to-edge; lower levels use native adjustResize).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react"
@@ -23,10 +25,8 @@ export function TextEditorScreen({ navigation, route }: Props) {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
   const lift = useKeyboardLift()
-  const [text, setText] = useState(initialText)
   const [saving, setSaving] = useState(false)
-  const textRef = useRef(text)
-  textRef.current = text
+  const textRef = useRef(initialText)
 
   const doSave = useCallback(async () => {
     setSaving(true)
@@ -55,8 +55,10 @@ export function TextEditorScreen({ navigation, route }: Props) {
 
   return (
     <NativeTextInput
-      value={text}
-      onChangeText={setText}
+      defaultValue={initialText}
+      onChangeText={(t) => {
+        textRef.current = t
+      }}
       multiline
       scrollEnabled
       autoCapitalize="none"

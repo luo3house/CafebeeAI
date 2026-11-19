@@ -40,6 +40,7 @@ export function ProjectFilesScreen({ navigation }: Props) {
   const projectId = snap.currentProjectId
   const [relDir, setRelDir] = useState("")
   const [files, setFiles] = useState<ProjectDirEntry[]>([])
+  const [hasGit, setHasGit] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [deleting, setDeleting] = useState<ProjectDirEntry | null>(null)
   const [renaming, setRenaming] = useState<ProjectDirEntry | null>(null)
@@ -63,7 +64,9 @@ export function ProjectFilesScreen({ navigation }: Props) {
   const refresh = useCallback(async () => {
     if (!projectId) return
     setFiles(await listProjectFiles(projectId, relDir))
-  }, [projectId, relDir])
+    // .git is a reserved segment the list never shows, so a repo can look "empty" - probe it directly
+    if (!relDir) setHasGit(await exists(joinPath(dirAbs, ".git")))
+  }, [projectId, relDir, dirAbs])
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -316,6 +319,7 @@ export function ProjectFilesScreen({ navigation }: Props) {
                 </Text>
               ) : (
                 <EmptyProjectWizard
+                  hasGit={hasGit}
                   onImport={() => void doImport()}
                   onClone={() => navigation.navigate("GitClone", { projectId })}
                 />

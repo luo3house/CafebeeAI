@@ -1,8 +1,11 @@
 /**
- * Project-level Git setup page (the [Settings] entry from the chat "+" Git tile): binds this Project's
- * workspace to ONE remote (URL + credential + default branch). Secrets stay in EncryptedStorage (the picker
- * only stores the credential id); URLs with embedded credentials are refused here and natively (rule: no
- * tokens in .git/config / export packages).
+ * Project-level Remote CRUD page (entered from the Remote section of the Git control page): this Project
+ * holds at most ONE remote record - the fixed-name origin remote bound to the workspace (URL + credential +
+ * default branch), stored in the project-meta config.yaml git segment; with no record the same form is the
+ * create state. Secrets stay in EncryptedStorage (rule 29): the picker only stores the credential id; URLs
+ * with embedded credentials are refused here and natively (rule: no tokens in .git/config / export packages).
+ * Deleting the record is the destructive action (danger confirm, local repository and history untouched) -
+ * saving with an empty URL is not a delete shortcut (URL is required).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react"
 import { ScrollView, StyleSheet, View } from "react-native"
@@ -11,13 +14,10 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import type { RootStackParamList } from "../../../app/app.ui.navigator"
 import { fs } from "../../../app/app.ui.theme"
-import { AppDialog } from "../../components/app-dialog"
-import { dialogCompact } from "../../components/dialog-compact"
-import { DialogButton } from "../../components/dialog-button"
-import { dialogLiftStyle, useKeyboardLift } from "../../use-keyboard-lift"
+import { ConfirmDialog } from "../../components/confirm-dialog"
 import { showNotice } from "../../../state/notice"
 import { showToast } from "../../../state/toast"
-import { getSetup, saveSetup } from "../../../core/git"
+import { getSetup, saveSetup, deleteRemote } from "../../../core/git"
 import {
   kGitCredentialStore,
   credentialTypeLabel,
@@ -28,21 +28,21 @@ import {
   type GitCredentialMeta,
 } from "../../../core/git-credentials"
 
-type Props = NativeStackScreenProps<RootStackParamList, "GitSetup">
+type Props = NativeStackScreenProps<RootStackParamList, "GitRemote">
 
 const EMBEDDED_CREDENTIALS_RE = /^[a-z][a-z0-9+.-]*:\/\/[^/@]+@/i
 
-export function GitSetupScreen({ navigation, route }: Props) {
+export function GitRemoteScreen({ navigation, route }: Props) {
   const projectId = route.params.projectId
   const theme = useTheme()
   const insets = useSafeAreaInsets()
-  const lift = useKeyboardLift()
 
+  const [existing, setExisting] = useState(false)
   const [remoteUrl, setRemoteUrl] = useState("")
   const [branch, setBranch] = useState("main")
   const [credId, setCredId] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [clearConfirm, setClearConfirm] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [credsVersion, setCredsVersion] = useState(0)
   void credsVersion
   useEffect(() => {
@@ -73,6 +73,7 @@ export function GitSetupScreen({ navigation, route }: Props) {
     let alive = true
     void getSetup(projectId).then((setup) => {
       if (!alive) return
+      setExisting(!!setup.remoteUrl)
       setRemoteUrl(setup.remoteUrl ?? "")
       setBranch(setup.branch ?? "main")
       setCredId(setup.credId ?? null)
@@ -84,37 +85,48 @@ export function GitSetupScreen({ navigation, route }: Props) {
 
   const onSave = useCallback(async () => {
     const url = remoteUrl.trim()
-    if (url) {
-      if (!/^[a-z][a-z0-9+.-]*:\/\/|^[^/@\s]+@[^/@\s]+:/i.test(url)) {
-        showNotice("Enter a valid repository URL (https://… or git@host:…).", { title: "Invalid URL" })
-        return
-      }
-      if (EMBEDDED_CREDENTIALS_RE.test(url)) {
-        showNotice(
-          "URLs with embedded credentials are not supported. Remove the user info and pick a credential instead.",
-          { title: "Invalid URL" },
-        )
-        return
-      }
+    if (!url) {
+      showNotice("Enter a repository URL (https://… or git@host:…).", { title: "Invalid URL" })
+      return
+    }
+    if (!/^[a-z][a-z0-9+.-]*:\/\/|^[^/@\s]+@[^/@\s]+:/i.test(url)) {
+      showNotice("Enter a valid repository URL (https://… or git@host:…).", { title: "Invalid URL" })
+      return
+    }
+    if (EMBEDDED_CREDENTIALS_RE.test(url)) {
+      showNotice(
+        "URLs with embedded credentials are not supported. Remove the user info and pick a credential instead.",
+        { title: "Invalid URL" },
+      )
+      return
     }
     if (!branch.trim()) {
       showNotice("Enter a default branch.", { title: "Invalid branch" })
       return
     }
     await saveSetup(projectId, {
-      remoteUrl: url || undefined,
+      remoteUrl: url,
       branch: branch.trim(),
-      credId: credId ?? undefined,
+      credId,
     })
-    showToast(url ? "Git setup saved" : "Git remote cleared for this project")
+    showToast(existing ? "Remote updated" : "Remote added")
     navigation.goBack()
-  }, [remoteUrl, branch, credId, projectId, navigation])
+  }, [remoteUrl, branch, credId, existing, projectId, navigation])
+
+  const onDelete = useCallback(async () => {
+    setDeleteConfirm(false)
+    await deleteRemote(projectId)
+    showToast("Remote deleted")
+    navigation.goBack()
+  }, [projectId, navigation])
 
   return (
     <>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}>
         <Text style={[styles.help, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
-          This Project uploads to and syncs with one remote branch. Leave the URL empty and save to unlink (the local repository stays untouched).
+          {
+            "This Project pulls from and pushes to one remote repository (stored as the standard origin remote). Switching to another repository means editing this record."
+          }
         </Text>
         <TextInput
           mode="outlined"
@@ -126,15 +138,7 @@ export function GitSetupScreen({ navigation, route }: Props) {
           autoCorrect={false}
           placeholder="https://github.com/user/repo.git"
         />
-        <TextInput
-          mode="outlined"
-          dense
-          label="Default branch"
-          value={branch}
-          onChangeText={setBranch}
-          autoCapitalize="none"
-          style={styles.field}
-        />
+        <TextInput mode="outlined" dense label="Default branch" value={branch} onChangeText={setBranch} autoCapitalize="none" style={styles.field} />
         <View style={styles.credRow}>
           <Menu
             visible={menuOpen}
@@ -166,39 +170,25 @@ export function GitSetupScreen({ navigation, route }: Props) {
             {selectedMismatched ? `Hint: this credential is for ${selected?.hostPrefix} remotes` : "Credential used for this remote"}
           </Text>
         </View>
-        <Button mode="contained" icon="check" onPress={() => void onSave()} style={styles.saveBtn}>
-          Save
+        <Button mode="contained" icon="content-save" onPress={() => void onSave()} style={styles.saveBtn}>
+          {existing ? "Save changes" : "Add remote"}
         </Button>
-        {remoteUrl.trim() ? (
-          <Button mode="text" compact textColor={theme.colors.error} onPress={() => setClearConfirm(true)} style={styles.clearBtn}>
-            Clear remote for this project
+        {existing ? (
+          <Button mode="text" compact icon="trash-can-outline" textColor={theme.colors.error} onPress={() => setDeleteConfirm(true)} style={styles.deleteBtn}>
+            Delete remote
           </Button>
         ) : null}
       </ScrollView>
-      <AppDialog visible={clearConfirm} onDismiss={() => setClearConfirm(false)} style={dialogLiftStyle(lift)}>
-        <AppDialog.Title style={dialogCompact.title}>Clear remote?</AppDialog.Title>
-        <AppDialog.Content style={dialogCompact.content}>
-          <Text style={{ color: theme.colors.onSurface }}>
-            Upload and sync will be hidden in the Git menu until a remote is set again. The local repository and its history stay untouched.
-          </Text>
-        </AppDialog.Content>
-        <AppDialog.Actions style={dialogCompact.actions}>
-          <DialogButton onPress={() => setClearConfirm(false)}>Cancel</DialogButton>
-          <DialogButton
-            mode="contained"
-            buttonColor={theme.colors.error}
-            textColor={theme.colors.onError}
-            onPress={async () => {
-              setClearConfirm(false)
-              setRemoteUrl("")
-              await saveSetup(projectId, { remoteUrl: undefined })
-              showToast("Git remote cleared for this project")
-            }}
-          >
-            Clear
-          </DialogButton>
-        </AppDialog.Actions>
-      </AppDialog>
+      <ConfirmDialog
+        visible={deleteConfirm}
+        title="Delete remote?"
+        body="Pull and Push stay unavailable until a remote is added again. The local repository and its history stay untouched."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={() => void onDelete()}
+        onCancel={() => setDeleteConfirm(false)}
+      />
     </>
   )
 }
@@ -209,5 +199,5 @@ const styles = StyleSheet.create({
   field: {},
   credRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   saveBtn: { marginTop: 6 },
-  clearBtn: { alignSelf: "center" },
+  deleteBtn: { alignSelf: "center" },
 })

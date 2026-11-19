@@ -22,7 +22,7 @@ import {
   type UploadResult,
 } from "react-native-pocket-git"
 import { projectRoot } from "./projects"
-import { loadConfig, setPreferences, type GitSpec } from "./config"
+import { loadConfig, setPreferences, writeConfig, flushConfigNow, CONFIG_DOC_KIND, type GitSpec, type ProjectConfigSpec } from "./config"
 import { kGitCredentialStore } from "./git-credentials"
 import { kGitOptions, gitKnownHostsPath, DEFAULT_GIT_OPTIONS } from "./git-options"
 import { projectGit } from "../state/git"
@@ -37,12 +37,11 @@ function logGitFailure(context: string, projectId: string, err: unknown): void {
 }
 
 
-export interface GitSetup {
+export interface RemoteRecord {
   branch?: string
   credId?: string
   remoteUrl?: string
 }
-
 export class GitBusyError extends Error {
   constructor() {
     super("Another git operation is already running for this project.")
@@ -77,19 +76,36 @@ async function transportFields(credId?: string | null) {
   }
 }
 
-export async function getSetup(projectId: string): Promise<GitSetup> {
+/** The project's single remote record (stored as the config.yaml git segment; remote name is the standard origin). */
+export async function getSetup(projectId: string): Promise<RemoteRecord> {
   const cfg = await loadConfig(projectId)
   const g = cfg.spec.git
   return { branch: g?.branch, credId: g?.cred_id, remoteUrl: g?.remote_url }
 }
 
-export async function saveSetup(projectId: string, part: Partial<GitSetup>): Promise<void> {
+export async function saveSetup(projectId: string, part: { branch?: string; credId?: string | null; remoteUrl?: string }): Promise<void> {
   const cfg = await loadConfig(projectId)
   const git: GitSpec = { ...cfg.spec.git }
   if (part.branch !== undefined) git.branch = part.branch
-  if (part.credId !== undefined) git.cred_id = part.credId
+  if (part.credId !== undefined) {
+    if (part.credId === null) delete git.cred_id
+    else git.cred_id = part.credId
+  }
   if (part.remoteUrl !== undefined) git.remote_url = part.remoteUrl
   setPreferences(projectId, { git })
+}
+
+/**
+ * Remote CRUD delete: drop the whole git segment (the single remote record: url + credential + branch).
+ * setPreferences cannot remove a key (undefined is a "leave untouched" delta and empty values are filtered
+ * at flush), so this writes the config directly. The local repository and its files stay untouched.
+ */
+export async function deleteRemote(projectId: string): Promise<void> {
+  await flushConfigNow(projectId) // a still-pending git delta would resurrect the segment at its next flush
+  const cfg = await loadConfig(projectId)
+  const spec: ProjectConfigSpec = { ...cfg.spec }
+  delete spec.git
+  await writeConfig(projectId, { kind: CONFIG_DOC_KIND, spec })
 }
 
 export async function isGitConfigured(projectId: string): Promise<boolean> {
@@ -174,7 +190,7 @@ export async function runSync(
     const setup = await getSetup(projectId)
     const transport = await transportFields(setup.credId)
     if (!setup.remoteUrl) {
-      throw new GitOpError("no_remote", "No remote repository is set up for this project. Open Git settings first.")
+      throw new GitOpError("no_remote", "No remote repository is set up for this project. Add a remote first.")
     }
     const params = {
       handle,
@@ -239,7 +255,7 @@ export async function fetchRemoteBranches(
   const setup = await getSetup(projectId)
   const url = args?.url ?? setup.remoteUrl
   if (!url) {
-    throw new GitOpError("no_remote", "No remote repository is set up for this project. Open Git settings first.")
+    throw new GitOpError("no_remote", "No remote repository is set up for this project. Add a remote first.")
   }
   const st = projectGit(projectId)
   st.branchesLoading = true

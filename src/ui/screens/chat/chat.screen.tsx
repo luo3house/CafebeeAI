@@ -43,8 +43,6 @@ import { ChatInputBar } from "./chat-input-bar"
 import { MessageList } from "./message-list"
 import { InputMorePanel, type InputMoreItem } from "./input-more-panel"
 import { StreamIndicator } from "./stream-indicator"
-import { GitActionDialog } from "../git/git-action-dialog"
-import { GitUploadDialog } from "../git/git-upload-dialog"
 import { exportConversationPairMarkdown } from "../../../core/import-export"
 import { showToast } from "../../../state/toast"
 import { showNotice } from "../../../state/notice"
@@ -69,8 +67,6 @@ export function ChatScreen({ navigation }: NavProps) {
   const snap = useSnapshot(runtime)
   const sessionsSnap = useSnapshot(chatSessions)
   const [moreVisible, setMoreVisible] = useState(false)
-  const [gitMenu, setGitMenu] = useState(false)
-  const [gitUpload, setGitUpload] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameText, setRenameText] = useState("")
   const [modelLabel, setModelLabel] = useState<string>("…")
@@ -290,7 +286,7 @@ export function ChatScreen({ navigation }: NavProps) {
       label: "Git",
       onPress: () => {
         setMoreVisible(false)
-        setGitMenu(true)
+        navigation.navigate("GitControl", { projectId })
       },
     },
   ]
@@ -469,30 +465,6 @@ export function ChatScreen({ navigation }: NavProps) {
           </DialogButton>
         </AppDialog.Actions>
       </AppDialog>
-
-      <GitActionDialog
-        visible={gitMenu}
-        projectId={projectId}
-        onDismiss={() => setGitMenu(false)}
-        onUpload={() => {
-          setGitMenu(false)
-          setGitUpload(true)
-        }}
-        onSync={() => {
-          setGitMenu(false)
-          navigation.navigate("GitSync", { projectId })
-        }}
-        onSettings={() => {
-          setGitMenu(false)
-          navigation.navigate("GitSetup", { projectId })
-        }}
-      />
-      <GitUploadDialog
-        visible={gitUpload}
-        projectId={projectId}
-        onDismiss={() => setGitUpload(false)}
-        onGoSync={() => navigation.navigate("GitSync", { projectId })}
-      />
     </KeyboardAvoidingView>
   )
 }
