@@ -8,6 +8,7 @@
  * total-less variant included; Done carries the size indicator).
  * The form card has no debug override - its pending hub form
  * only appears with a real formflow session; the demo covers the queued/Done/Rejected/Cancelled terminal states.
+ * The "Snackbar toast" row fires the real global Snackbar (raised 10% of screen height, 85% opacity) via showToast.
  */
 import React from "react"
 import { ScrollView, StyleSheet, Text, View } from "react-native"
@@ -15,6 +16,7 @@ import { useTheme } from "react-native-paper"
 import { fs } from "../../../app/app.ui.theme"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { showNotice } from "../../../state/notice"
+import { showToast } from "../../../state/toast"
 import { TagButton } from "../../components/tag-button"
 import { GitDemoSection } from "./git-demo.section"
 import {
@@ -289,6 +291,19 @@ export function DebugScreen() {
           <View style={styles.contentCell}>
             <View style={styles.btnRow}>
               <TagButton label="Show dialog" onPress={() => showNotice("Import failed: could not read the selected file.", { title: "Import failed" })} />
+            </View>
+          </View>
+        </View>
+        <View style={[styles.row, { borderBottomWidth: hairline, borderColor: theme.colors.outlineVariant }]}>
+          <View style={[styles.titleCell, { borderRightWidth: hairline, borderColor: theme.colors.outlineVariant }]}>
+              <Text style={[styles.cellLabel, { color: theme.colors.onSurface, fontSize: fs(theme, 13), lineHeight: fs(theme, 17) }]} numberOfLines={2}>
+              Snackbar toast
+            </Text>
+          </View>
+          <View style={styles.contentCell}>
+            <View style={styles.btnRow}>
+              <TagButton label="Show toast" onPress={() => showToast("Saved")} />
+              <TagButton label="Long toast" tone="neutral" onPress={() => showToast("Export complete: cafebeeai-project-20261119-1130.zip is ready in the share sheet.")} />
             </View>
           </View>
         </View>

@@ -6,6 +6,15 @@
 
 <p align="center"><em>0xCAFEBEEA. Agentic AI for Mobile.</em></p>
 
+<p align="center">
+  <a href="https://github.com/luo3house/CafebeeAI/actions/workflows/quick-check.yml">
+    <img src="https://github.com/luo3house/CafebeeAI/actions/workflows/quick-check.yml/badge.svg" alt="Quick Check" />
+  </a>
+  <a href="https://github.com/luo3house/CafebeeAI/actions/workflows/release.yml">
+    <img src="https://github.com/luo3house/CafebeeAI/actions/workflows/release.yml/badge.svg" alt="Release" />
+  </a>
+</p>
+
 A React Native app that puts a tool-using LLM agent directly on your phone: every Project is a real working directory, and the model can read, write, search, download into it — with you approving each mutation.
 
 <p align="center"><em>I use this bee to generate business trip receipts.</em></p>

@@ -4,6 +4,7 @@
  * (Provider/model selection = the ModelPicker full-screen page; write confirmation moved inline into tool cards, the dialog host has been removed)
  */
 import React from "react"
+import { useWindowDimensions } from "react-native"
 import { Portal, Snackbar, Text } from "react-native-paper"
 import { useSnapshot } from "valtio"
 import { toastState, dismissToast } from "../../state/toast"
@@ -17,6 +18,7 @@ export function GlobalHosts() {
   const toast = useSnapshot(toastState)
   const notice = useSnapshot(noticeState)
   const lift = useKeyboardLift()
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions()
   return (
     <>
       <Portal>
@@ -24,6 +26,11 @@ export function GlobalHosts() {
           visible={toast.visible}
           onDismiss={dismissToast}
           duration={2200}
+          // lift the toast 10% of screen height above the bottom; opacity rides the wrapper so
+          // Paper's own fade-in/out animation (on the inner Surface) still multiplies through it
+          wrapperStyle={{ bottom: windowHeight * 0.1, opacity: 0.85 }}
+          // horizontal inset = 8% of screen width (overrides the default margin: 8 side components)
+          style={{ marginHorizontal: windowWidth * 0.08 }}
         >
           {toast.message}
         </Snackbar>

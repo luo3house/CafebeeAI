@@ -207,27 +207,23 @@ export function GitControlScreen({ navigation, route }: Props) {
   return (
     <>
       <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 15) }]}>Remote</Text>
+        <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 18) }]}>Remote</Text>
         {configured ? (
           <>
             <View style={[styles.remoteCard, { backgroundColor: theme.colors.surfaceVariant }]}>
-              <Text style={{ color: theme.colors.onSurface, fontSize: fs(theme, 13) }} numberOfLines={1}>
-                {"origin · " + (remoteUrl ?? "")}
-              </Text>
-              <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }} numberOfLines={1}>
-                {"Default branch: " + (remoteBranch ?? "main")}
-              </Text>
+              <Text style={{ color: theme.colors.onSurface, fontSize: fs(theme, 13) }}>{"origin · " + (remoteUrl ?? "")}</Text>
+              <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }}>{"Default branch: " + (remoteBranch ?? "main")}</Text>
             </View>
-            <Button mode="outlined" icon="pencil-outline" disabled={busy} onPress={() => navigation.navigate("GitRemote", { projectId })}>
+            <Button style={styles.block} mode="outlined" icon="pencil-outline" disabled={busy} onPress={() => navigation.navigate("GitRemote", { projectId })}>
               Manage remote
             </Button>
           </>
         ) : (
           <>
-            <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }}>
+            <Text style={[styles.block, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
               No remote repository is set up for this project yet. Pull and Push stay unavailable until one is added.
             </Text>
-            <Button mode="contained" icon="plus" onPress={() => navigation.navigate("GitRemote", { projectId })}>
+            <Button style={styles.block} mode="contained" icon="plus" onPress={() => navigation.navigate("GitRemote", { projectId })}>
               Add a remote
             </Button>
           </>
@@ -240,8 +236,9 @@ export function GitControlScreen({ navigation, route }: Props) {
             pullSectionYRef.current = e.nativeEvent.layout.y
           }}
         >
-          <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 15) }]}>Pull</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 18) }]}>Pull</Text>
           <TextInput
+            style={styles.block}
             mode="outlined"
             dense
             label="Target branch"
@@ -254,6 +251,7 @@ export function GitControlScreen({ navigation, route }: Props) {
             disabled={busy || !configured}
           />
           <CheckRow
+            style={styles.block}
             checked={forcePreAuth}
             disabled={busy || !configured}
             title="Force pull"
@@ -308,15 +306,22 @@ export function GitControlScreen({ navigation, route }: Props) {
               ))}
             </View>
           ) : (
-            <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }}>
+            <Text style={[styles.block, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
               {rt?.branchesLoading ? "Loading remote branches…" : configured ? "Fetch to pick a remote branch, or type it manually." : ""}
             </Text>
           )}
           {renderProgress("sync")}
-          <Button mode="contained" icon="download" disabled={busy || !configured} loading={busy && rt?.kind === "sync"} onPress={() => void doPull(forcePreAuth)}>
+          <Button
+            style={styles.block}
+            mode="contained"
+            icon="download"
+            disabled={busy || !configured}
+            loading={busy && rt?.kind === "sync"}
+            onPress={() => void doPull(forcePreAuth)}
+          >
             Pull
           </Button>
-          <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }}>
+          <Text style={[styles.block, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
             {
               "Pull never creates merge commits. Local changes that would be overwritten block the pull; save them with a push first, or force pull to adopt the remote state wholesale."
             }
@@ -325,9 +330,20 @@ export function GitControlScreen({ navigation, route }: Props) {
 
         <Divider style={styles.divider} />
 
-        <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 15) }]}>Push</Text>
-        <TextInput mode="outlined" dense label="Commit message" value={pushMessage} onChangeText={setPushMessage} multiline numberOfLines={2} disabled={busy || !configured} />
+        <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 18) }]}>Push</Text>
         <TextInput
+          style={styles.block}
+          mode="outlined"
+          dense
+          label="Commit message"
+          value={pushMessage}
+          onChangeText={setPushMessage}
+          multiline
+          numberOfLines={2}
+          disabled={busy || !configured}
+        />
+        <TextInput
+          style={styles.block}
           mode="outlined"
           dense
           label="Branch"
@@ -340,10 +356,12 @@ export function GitControlScreen({ navigation, route }: Props) {
           disabled={busy || !configured}
         />
         {renderProgress("upload")}
-        <Button mode="contained" icon="upload" disabled={busy || !configured} loading={busy && rt?.kind === "upload"} onPress={() => void doPush(false)}>
+        <Button style={styles.block} mode="contained" icon="upload" disabled={busy || !configured} loading={busy && rt?.kind === "upload"} onPress={() => void doPush(false)}>
           Push
         </Button>
-        <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }}>{"Push commits all project changes and uploads them to the remote branch."}</Text>
+        <Text style={[styles.block, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
+          {"Push commits all project changes and uploads them to the remote branch."}
+        </Text>
       </ScrollView>
 
       <AppDialog visible={pullConflict} onDismiss={() => setPullConflict(false)} style={styles.dialog}>
@@ -404,12 +422,13 @@ export function GitControlScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 8 },
-  sectionTitle: { letterSpacing: 0.2, fontWeight: "bold", marginTop: 2 },
-  remoteCard: { borderRadius: 8, padding: 12, gap: 2 },
+  content: { padding: 16 },
+  block: { marginBottom: 10 },
+  sectionTitle: { letterSpacing: 0.2, fontWeight: "bold", marginTop: 2, marginBottom: 8 },
+  remoteCard: { borderRadius: 8, padding: 12, gap: 2, marginBottom: 10 },
   divider: { marginTop: 14, marginBottom: 6 },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  table: { borderRadius: 8, overflow: "hidden" },
+  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 },
+  table: { borderRadius: 8, overflow: "hidden", marginBottom: 10 },
   tr: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 12 },
   th: { paddingVertical: 8 },
   td: { flex: 1 },
@@ -420,6 +439,7 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 10,
     borderRadius: 8,
+    marginBottom: 10,
   },
   dialog: { maxWidth: 340 },
   verticalActions: {
