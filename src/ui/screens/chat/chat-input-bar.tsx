@@ -17,10 +17,11 @@
  * typing stays responsive while a reply is generating.
  */
 import React from "react"
-import { StyleSheet, TextInput, View } from "react-native"
+import { StyleSheet, Text, TextInput, View } from "react-native"
 import { IconButton, useTheme } from "react-native-paper"
 import { useSnapshot } from "valtio"
 import { fs } from "../../../app/app.ui.theme"
+import { AppPressable } from "../../components/app-pressable"
 import { draftStore } from "../../../state/chat"
 
 type ChatInputBarProps = {
@@ -34,6 +35,10 @@ type ChatInputBarProps = {
   humanWait: boolean
   moreVisible: boolean
   onToggleMore: () => void
+  /** System Prompt quick switch (rule 35): the button next to "+"; only opens the picker dialog, the CRUD page is reached through the dialog's fixed action.
+   *  The button is NOT an icon font glyph: it renders the bound prompt's first character / initial letter centered inside a round outline circle. */
+  onPickPrompt: () => void
+  promptInitial: string
   onSend: (text: string) => void
   onStop: () => void
 }
@@ -41,7 +46,7 @@ type ChatInputBarProps = {
 const INPUT_LINE_HEIGHT = 21
 const INPUT_MAX_HEIGHT = 120
 
-export function ChatInputBar({ draftKey, onChangeText, streaming, humanWait, moreVisible, onToggleMore, onSend, onStop }: ChatInputBarProps) {
+export function ChatInputBar({ draftKey, onChangeText, streaming, humanWait, moreVisible, onToggleMore, onPickPrompt, promptInitial, onSend, onStop }: ChatInputBarProps) {
   const theme = useTheme()
   const draftSnap = useSnapshot(draftStore, { sync: true })
   const value = draftSnap[draftKey] ?? ""
@@ -63,6 +68,26 @@ export function ChatInputBar({ draftKey, onChangeText, streaming, humanWait, mor
     <View style={styles.row}>
       <View style={styles.side}>
         <IconButton icon={moreVisible ? "close" : "plus"} size={22} style={styles.icon} onPress={onToggleMore} />
+        {/*
+         * The sized circle MUST be the child (the inner Pressable shrink-wraps children; AppPressable's outer
+         * View is styling only and never hit-tests - style-on-outer alone would leave a glyph-sized touch area).
+         * hitSlop pads the 28px ring up to a ~44px touch surface matching the neighbouring IconButton.
+         */}
+        <AppPressable
+          accessibilityRole="button"
+          onPress={onPickPrompt}
+          pressedStyle={styles.badgePressed}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <View style={[styles.badge, { borderColor: theme.colors.primary }]}>
+            <Text
+              numberOfLines={1}
+              style={[styles.badgeText, { fontSize: fs(theme, 13), lineHeight: fs(theme, 16), color: theme.colors.primary }]}
+            >
+              {promptInitial}
+            </Text>
+          </View>
+        </AppPressable>
       </View>
       <View style={[styles.field, { backgroundColor: theme.colors.surfaceVariant }]}>
         <TextInput
@@ -95,8 +120,24 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     gap: 6,
   },
-  side: { justifyContent: "center" },
+  side: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
   icon: { margin: 0 },
+  // System Prompt quick switch roundel (rule 35): first character / initial of the bound prompt centered in an outlined circle
+  badge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgePressed: { opacity: 0.6 },
+  badgeText: {
+    fontFamily: "monospace",
+    fontWeight: "600",
+    includeFontPadding: false,
+    textAlign: "center",
+  },
   field: {
     flex: 1,
     borderRadius: 4,

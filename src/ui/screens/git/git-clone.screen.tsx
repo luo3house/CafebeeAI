@@ -16,6 +16,7 @@ import { AppDialog } from "../../components/app-dialog"
 import { dialogCompact } from "../../components/dialog-compact"
 import { DialogButton } from "../../components/dialog-button"
 import { useModalInputFocus } from "../../use-modal-input-focus"
+import { useKeyboardLift } from "../../use-keyboard-lift"
 import { showNotice } from "../../../state/notice"
 import { showToast } from "../../../state/toast"
 import { gitState } from "../../../state/git"
@@ -37,6 +38,7 @@ export function GitCloneScreen({ navigation, route }: Props) {
   const projectId = route.params.projectId
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+  const keyboardLift = useKeyboardLift()
   const inputRef = useModalInputFocus(true)
   const snap = useSnapshot(gitState)
   const rt = snap.byProject[projectId]
@@ -101,65 +103,67 @@ export function GitCloneScreen({ navigation, route }: Props) {
 
   return (
     <>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}>
-        <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }}>
-          Clone fills this project with the remote repository. The project must be empty.
-        </Text>
-        <TextInput
-          ref={inputRef}
-          mode="outlined"
-          dense
-          label="Repository URL"
-          value={url}
-          onChangeText={setUrl}
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder="https://github.com/user/repo.git"
-        />
-        <TextInput
-          mode="outlined"
-          dense
-          label="Branch"
-          value={branch}
-          onChangeText={setBranch}
-          autoCapitalize="none"
-          style={styles.field}
-        />
-        <View style={styles.credRow}>
-          <Menu
-            visible={menuOpen}
-            onDismiss={() => setMenuOpen(false)}
-            anchor={
-              <Button mode="outlined" compact icon="key-variant" onPress={() => setMenuOpen(true)}>
-                {selected ? selected.name : "None"}
-              </Button>
-            }
-            contentStyle={{ maxHeight: 320 }}
-          >
-            <Menu.Item title="None" onPress={() => { setMenuOpen(false); setCredId(null) }} />
-            <Divider />
-            {sortedCreds.map((c) => (
-              <Menu.Item
-                key={c.id}
-                title={c.name + " · " + credentialTypeLabel(c)}
-                leadingIcon={credentialTypeIcon(c)}
-                onPress={() => {
-                  setMenuOpen(false)
-                  setCredId(c.id)
-                }}
-              />
-            ))}
-            <Divider />
-            <Menu.Item title="Manage credentials…" leadingIcon="cog-outline" onPress={() => { setMenuOpen(false); navigation.navigate("GitCredentials") }} />
-          </Menu>
-          <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12), flex: 1 }} numberOfLines={2}>
-            {selectedMismatched ? `Hint: this credential is for ${selected?.hostPrefix} remotes` : "Credential for private repositories"}
+      <View style={{ flex: 1, marginBottom: keyboardLift }} pointerEvents="box-none">
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]} keyboardShouldPersistTaps="handled">
+          <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }}>
+            Clone fills this project with the remote repository. The project must be empty.
           </Text>
-        </View>
-        <Button mode="contained" icon="download" loading={busy} disabled={busy} onPress={() => void doClone()}>
-          Clone
-        </Button>
-      </ScrollView>
+          <TextInput
+            ref={inputRef}
+            mode="outlined"
+            dense
+            label="Repository URL"
+            value={url}
+            onChangeText={setUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="https://github.com/user/repo.git"
+          />
+          <TextInput
+            mode="outlined"
+            dense
+            label="Branch"
+            value={branch}
+            onChangeText={setBranch}
+            autoCapitalize="none"
+            style={styles.field}
+          />
+          <View style={styles.credRow}>
+            <Menu
+              visible={menuOpen}
+              onDismiss={() => setMenuOpen(false)}
+              anchor={
+                <Button mode="outlined" compact icon="key-variant" onPress={() => setMenuOpen(true)}>
+                  {selected ? selected.name : "None"}
+                </Button>
+              }
+              contentStyle={{ maxHeight: 320 }}
+            >
+              <Menu.Item title="None" onPress={() => { setMenuOpen(false); setCredId(null) }} />
+              <Divider />
+              {sortedCreds.map((c) => (
+                <Menu.Item
+                  key={c.id}
+                  title={c.name + " · " + credentialTypeLabel(c)}
+                  leadingIcon={credentialTypeIcon(c)}
+                  onPress={() => {
+                    setMenuOpen(false)
+                    setCredId(c.id)
+                  }}
+                />
+              ))}
+              <Divider />
+              <Menu.Item title="Manage credentials…" leadingIcon="cog-outline" onPress={() => { setMenuOpen(false); navigation.navigate("GitCredentials") }} />
+            </Menu>
+            <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12), flex: 1 }} numberOfLines={2}>
+              {selectedMismatched ? `Hint: this credential is for ${selected?.hostPrefix} remotes` : "Credential for private repositories"}
+            </Text>
+          </View>
+          <Button mode="contained" icon="download" loading={busy} disabled={busy} onPress={() => void doClone()}>
+            Clone
+          </Button>
+        </ScrollView>
+      </View>
       <AppDialog visible={busy} onDismiss={() => undefined}>
         <AppDialog.Title style={dialogCompact.title}>Cloning…</AppDialog.Title>
         <AppDialog.Content style={dialogCompact.content}>

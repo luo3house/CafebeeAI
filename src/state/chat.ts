@@ -242,7 +242,7 @@ export function setDraft(entry: SessionEntry, text: string): void {
 export async function updateConversationMeta(
   projectId: string,
   convId: string,
-  patch: Partial<Pick<Conversation, "title" | "systemPrompt" | "providerId" | "model" | "summaryAt">>
+  patch: Partial<Pick<Conversation, "title" | "systemPromptId" | "providerId" | "model" | "summaryAt">>
 ): Promise<void> {
   const entry = getEntry(projectId, convId)
   if (entry) {

@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import type { RootStackParamList } from "../../../app/app.ui.navigator"
 import { fs } from "../../../app/app.ui.theme"
 import { ConfirmDialog } from "../../components/confirm-dialog"
+import { useKeyboardLift } from "../../use-keyboard-lift"
 import { showNotice } from "../../../state/notice"
 import { showToast } from "../../../state/toast"
 import { getSetup, saveSetup, deleteRemote } from "../../../core/git"
@@ -36,6 +37,7 @@ export function GitRemoteScreen({ navigation, route }: Props) {
   const projectId = route.params.projectId
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+  const keyboardLift = useKeyboardLift()
 
   const [existing, setExisting] = useState(false)
   const [remoteUrl, setRemoteUrl] = useState("")
@@ -122,63 +124,65 @@ export function GitRemoteScreen({ navigation, route }: Props) {
 
   return (
     <>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}>
-        <Text style={[styles.help, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
-          {
-            "This Project pulls from and pushes to one remote repository (stored as the standard origin remote). Switching to another repository means editing this record."
-          }
-        </Text>
-        <TextInput
-          mode="outlined"
-          dense
-          label="Remote URL"
-          value={remoteUrl}
-          onChangeText={setRemoteUrl}
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder="https://github.com/user/repo.git"
-        />
-        <TextInput mode="outlined" dense label="Default branch" value={branch} onChangeText={setBranch} autoCapitalize="none" style={styles.field} />
-        <View style={styles.credRow}>
-          <Menu
-            visible={menuOpen}
-            onDismiss={() => setMenuOpen(false)}
-            anchor={
-              <Button mode="outlined" compact icon="key-variant" onPress={() => setMenuOpen(true)}>
-                {selected ? selected.name : "None"}
-              </Button>
+      <View style={{ flex: 1, marginBottom: keyboardLift }} pointerEvents="box-none">
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]} keyboardShouldPersistTaps="handled">
+          <Text style={[styles.help, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
+            {
+              "This Project pulls from and pushes to one remote repository (stored as the standard origin remote). Switching to another repository means editing this record."
             }
-            contentStyle={{ maxHeight: 320 }}
-          >
-            <Menu.Item title="None" onPress={() => { setMenuOpen(false); setCredId(null) }} />
-            <Divider />
-            {sortedCreds.map((c) => (
-              <Menu.Item
-                key={c.id}
-                title={c.name + " · " + credentialTypeLabel(c)}
-                leadingIcon={credentialTypeIcon(c)}
-                onPress={() => {
-                  setMenuOpen(false)
-                  setCredId(c.id)
-                }}
-              />
-            ))}
-            <Divider />
-            <Menu.Item title="Manage credentials…" leadingIcon="cog-outline" onPress={() => { setMenuOpen(false); navigation.navigate("GitCredentials") }} />
-          </Menu>
-          <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12), flex: 1 }} numberOfLines={2}>
-            {selectedMismatched ? `Hint: this credential is for ${selected?.hostPrefix} remotes` : "Credential used for this remote"}
           </Text>
-        </View>
-        <Button mode="contained" icon="content-save" onPress={() => void onSave()} style={styles.saveBtn}>
-          {existing ? "Save changes" : "Add remote"}
-        </Button>
-        {existing ? (
-          <Button mode="text" compact icon="trash-can-outline" textColor={theme.colors.error} onPress={() => setDeleteConfirm(true)} style={styles.deleteBtn}>
-            Delete remote
+          <TextInput
+            mode="outlined"
+            dense
+            label="Remote URL"
+            value={remoteUrl}
+            onChangeText={setRemoteUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="https://github.com/user/repo.git"
+          />
+          <TextInput mode="outlined" dense label="Default branch" value={branch} onChangeText={setBranch} autoCapitalize="none" style={styles.field} />
+          <View style={styles.credRow}>
+            <Menu
+              visible={menuOpen}
+              onDismiss={() => setMenuOpen(false)}
+              anchor={
+                <Button mode="outlined" compact icon="key-variant" onPress={() => setMenuOpen(true)}>
+                  {selected ? selected.name : "None"}
+                </Button>
+              }
+              contentStyle={{ maxHeight: 320 }}
+            >
+              <Menu.Item title="None" onPress={() => { setMenuOpen(false); setCredId(null) }} />
+              <Divider />
+              {sortedCreds.map((c) => (
+                <Menu.Item
+                  key={c.id}
+                  title={c.name + " · " + credentialTypeLabel(c)}
+                  leadingIcon={credentialTypeIcon(c)}
+                  onPress={() => {
+                    setMenuOpen(false)
+                    setCredId(c.id)
+                  }}
+                />
+              ))}
+              <Divider />
+              <Menu.Item title="Manage credentials…" leadingIcon="cog-outline" onPress={() => { setMenuOpen(false); navigation.navigate("GitCredentials") }} />
+            </Menu>
+            <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12), flex: 1 }} numberOfLines={2}>
+              {selectedMismatched ? `Hint: this credential is for ${selected?.hostPrefix} remotes` : "Credential used for this remote"}
+            </Text>
+          </View>
+          <Button mode="contained" icon="content-save" onPress={() => void onSave()} style={styles.saveBtn}>
+            {existing ? "Save changes" : "Add remote"}
           </Button>
-        ) : null}
-      </ScrollView>
+          {existing ? (
+            <Button mode="text" compact icon="trash-can-outline" textColor={theme.colors.error} onPress={() => setDeleteConfirm(true)} style={styles.deleteBtn}>
+              Delete remote
+            </Button>
+          ) : null}
+        </ScrollView>
+      </View>
       <ConfirmDialog
         visible={deleteConfirm}
         title="Delete remote?"

@@ -9,6 +9,11 @@ export interface TextEditorParams {
   label: string
   initialText?: string
   /**
+   * Read-only view: the header save button disappears, the TextInput is non-editable (text stays selectable),
+   * and onSave is never called - omit it. Used by the built-in Ask / Code prompt rows (rule 35).
+   */
+  readOnly?: boolean
+  /**
    * Async pre-check triggered by the header save button. Defaults to "fully pass" (value = raw text)
    * when omitted. Not ok -> the message surfaces as a problem-notice confirm dialog and the editor stays open.
    */
@@ -17,5 +22,5 @@ export interface TextEditorParams {
    * Called only after validate() returned ok, with the validate result value (raw text when no validate
    * given). Await it; throwing shows a problem-notice confirm dialog and keeps the editor open; resolving closes it (goBack).
    */
-  onSave: (value: unknown, text: string) => Promise<void>
+  onSave?: (value: unknown, text: string) => Promise<void>
 }

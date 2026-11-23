@@ -7,6 +7,8 @@ import { ensureBootstrap } from "../core/projects"
 import { kProviderRegistry } from "../core/providers"
 import { kSecretStore } from "../core/secrets"
 import { kGitApp } from "../core/git"
+import { kSystemPromptStore } from "../core/system-prompts"
+import { kSkillStore } from "../core/skills"
 import { sweepShareCache } from "../core/import-export"
 import { runProjectSweepIfDue } from "../core/project-sweeper"
 import { flushAllSessions } from "../state/chat"
@@ -26,7 +28,14 @@ class App {
   }
 
   private async bootstrap(): Promise<void> {
-    await Promise.all([ensureBootstrap(), kProviderRegistry().load(), kSecretStore().load(), kGitApp().load()])
+    await Promise.all([
+      ensureBootstrap(),
+      kProviderRegistry().load(),
+      kSecretStore().load(),
+      kGitApp().load(),
+      kSystemPromptStore().load(),
+      kSkillStore().load(),
+    ])
     // Periodic stale-cache cleanup (24h TTL): fire-and-forget, export/open staging is never blocking startup.
     sweepShareCache().catch(() => {})
     // Orphan project-state sweeper (14-day window, startup async): never blocks startup.

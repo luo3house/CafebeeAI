@@ -1,6 +1,6 @@
 /**
  * The "+" panel below the input (WeChat-style grid): each item = rounded-square icon + label underneath, the whole cell (icon + text) is the tap area.
- * Current items: Files → project files page; Models → Provider/model picker page.
+ * Current items: Files → project files page; Models → Provider/model picker page; Skills (rule 36) → skills CRUD page; also file server / git entries.
  * Height reserves a fixed 2-row grid (empty slots act as placeholders when the menu has fewer than 2 rows), expanding with a 50ms linear height animation.
  */
 import React, { useEffect, useRef, useState } from "react"
@@ -14,6 +14,8 @@ export interface InputMoreItem {
   icon: string
   label: string
   onPress: () => void
+  /** display-only tile: greys the cell and ignores taps (e.g. Git/GitHub entries not wired yet) */
+  disabled?: boolean
 }
 
 /** Single grid row height: icon 56 + label gap 6 + label ~16 + row bottom margin 12 */

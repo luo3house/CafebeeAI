@@ -10,6 +10,9 @@
  * it - the Appbar/modelBar/input bar shell does not rebuild per flush. renderItem lives in message-list.tsx
  * with a permanently stable identity; per-turn flags reach cells via context.
  * FlashList inverted + the double mirroring workaround live in message-list.tsx.
+ * System Prompt quick switch (rule 35): the input-bar button opens SystemPromptPicker (pick = sticky binding write,
+ * next turn only); Skills (rule 36): keystroke expansion runs in onChangeDraft via expandSkillsOnEdit (the send
+ * sweep lives in llm/chat.ts) and the debounced candidate strip is a self-subscribed FC rendered above the input.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { StyleSheet, Text, View, KeyboardAvoidingView, Platform, Clipboard, Keyboard } from "react-native"
@@ -49,6 +52,10 @@ import { showNotice } from "../../../state/notice"
 import { dialogLiftStyle, useKeyboardLift } from "../../use-keyboard-lift"
 import { useModalInputFocus } from "../../use-modal-input-focus"
 import { kApp } from "../../../app/app"
+import { kSystemPromptStore, SYSTEM_PROMPT_ASK_ID } from "../../../core/system-prompts"
+import { kSkillStore, expandSkillsOnEdit } from "../../../core/skills"
+import { SystemPromptPicker } from "./system-prompt-picker"
+import { SkillHintStrip } from "./skill-hint-strip"
 import type { AppNavigation } from "../../../app/app.ui.navigator"
 
 type NavProps = { navigation: AppNavigation }
@@ -71,6 +78,9 @@ export function ChatScreen({ navigation }: NavProps) {
   const [renameText, setRenameText] = useState("")
   const [modelLabel, setModelLabel] = useState<string>("…")
   const [appReady, setAppReady] = useState(false)
+  const [promptPickerVisible, setPromptPickerVisible] = useState(false)
+  // the prompt registry is non-reactive: bump on focus so the modelBar prompt name re-reads after CRUD edits
+  const [promptTick, setPromptTick] = useState(0)
 
   const projectId = snap.currentProjectId
   const convId = snap.currentConversationId
@@ -80,6 +90,21 @@ export function ChatScreen({ navigation }: NavProps) {
   // NOTE: never read sessionSnap?.messages / .draft here - this component must not re-render on stream
   // flushes; MessageList subscribes to messages (throttled) and ChatInputBar to draftStore instead.
   const streaming = !!sessionSnap?.streaming
+
+  // Effective system-prompt binding (rule 35): unbound OR an id pointing at a deleted custom entry both resolve
+  // to the built-in Ask (lazy fallback, nothing rewritten); the picker highlights that id. modelBar shows the
+  // name for anything non-Ask (built-in Code included).
+  const boundPromptId = useMemo(() => {
+    const id = conversation?.systemPromptId
+    if (!id) return SYSTEM_PROMPT_ASK_ID
+    return kSystemPromptStore().get(id) ? id : SYSTEM_PROMPT_ASK_ID
+    // promptTick: the registry is not valtio - bump on re-focus (CRUD renames) recomputes the name too
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation?.systemPromptId, promptTick])
+  const promptName = kSystemPromptStore().get(boundPromptId)?.name ?? "Ask"
+  const boundPromptName = boundPromptId === SYSTEM_PROMPT_ASK_ID ? "" : promptName
+  // Roundel content for the input-bar quick-switch button (rule 35) = the bound name's first character/letter (uppercased for latin)
+  const promptInitial = Array.from(promptName.trim())[0]?.toUpperCase() ?? "?"
 
   // Waiting on a human (this session's pending card / form to fill): input-bar send = preempt, indicator hidden (the card is the status)
   const toolSnap = useSnapshot(toolflow)
@@ -196,6 +221,7 @@ export function ChatScreen({ navigation }: NavProps) {
     // After returning from ModelPicker, sync the provider/model label in the bar (including picks made before sending); returning to the chat page keeps the original scroll position — no scrolling
     return navigation.addListener("focus", () => {
       void refreshLabel()
+      setPromptTick((t) => t + 1) // return from the System Prompts CRUD page: re-read the registry name for the hint/picker
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -207,7 +233,9 @@ export function ChatScreen({ navigation }: NavProps) {
 
   const onChangeDraft = useCallback((t: string) => {
     const entry = getEntry(runtime.currentProjectId, runtime.currentConversationId)
-    if (entry) setDraft(entry, t)
+    if (!entry) return
+    // rule 36: expand slash-skill tokens terminated by this edit only (the send-time sweep in llm/chat.ts covers the rest)
+    setDraft(entry, expandSkillsOnEdit(entry.draft, t, (lower) => kSkillStore().contentFor(lower)))
   }, [])
 
   const openModelSwitcher = async () => {
@@ -260,6 +288,16 @@ export function ChatScreen({ navigation }: NavProps) {
     }
   }
 
+  /** Quick switch (rule 35): sticky write of the conversation binding - built-in Ask/Code included (the unbound state is equivalent to Ask), affects only the next turn, never interrupts a running one */
+  const pickSystemPrompt = (id: string) => {
+    setPromptPickerVisible(false)
+    if (!projectId || !convId) return
+    if (boundPromptId === id) return
+    updateConversationMeta(projectId, convId, { systemPromptId: id }).catch((err: any) =>
+      showNotice(String(err?.message ?? err), { title: "Update failed" })
+    )
+  }
+
   const moreItems: InputMoreItem[] = [
     {
       key: "files",
@@ -271,6 +309,15 @@ export function ChatScreen({ navigation }: NavProps) {
       },
     },
     { key: "models", icon: "chip", label: "Models", onPress: () => void openModelSwitcher() },
+    {
+      key: "skills",
+      icon: "lightning-bolt-outline",
+      label: "Skills",
+      onPress: () => {
+        setMoreVisible(false)
+        navigation.navigate("Skills")
+      },
+    },
     {
       key: "file-server",
       icon: "wifi",
@@ -416,7 +463,7 @@ export function ChatScreen({ navigation }: NavProps) {
           </Text>
           <IconButton icon="cog-outline" size={14} style={styles.modelCog} onPress={openModelSwitcher} />
           <Text style={[styles.convHint, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 11) }]} onPress={openConversationSwitcher}>
-            {conversation?.systemPrompt ? "System prompt set" : ""}
+            {boundPromptName}
           </Text>
         </View>
       </AppPressable>
@@ -429,6 +476,8 @@ export function ChatScreen({ navigation }: NavProps) {
         callbacks={callbacks}
         listRef={listRef}
       />
+
+      <SkillHintStrip draftKey={boundSessionKey} />
 
       <View style={[styles.inputWrap, { marginBottom: keyboardLift, paddingBottom: insets.bottom }]}>
         <View pointerEvents="none" style={styles.indicatorFloat}>
@@ -445,6 +494,11 @@ export function ChatScreen({ navigation }: NavProps) {
             Keyboard.dismiss()
             setMoreVisible((v) => !v)
           }}
+          onPickPrompt={() => {
+            try { Keyboard.dismiss() } catch {}
+            setPromptPickerVisible(true)
+          }}
+          promptInitial={promptInitial}
           onSend={onSend}
           onStop={onStop}
         />
@@ -465,6 +519,17 @@ export function ChatScreen({ navigation }: NavProps) {
           </DialogButton>
         </AppDialog.Actions>
       </AppDialog>
+
+      <SystemPromptPicker
+        visible={promptPickerVisible}
+        currentId={boundPromptId}
+        onDismiss={() => setPromptPickerVisible(false)}
+        onPick={pickSystemPrompt}
+        onManage={() => {
+          setPromptPickerVisible(false)
+          navigation.navigate("SystemPrompts")
+        }}
+      />
     </KeyboardAvoidingView>
   )
 }

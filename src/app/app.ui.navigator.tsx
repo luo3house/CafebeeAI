@@ -33,6 +33,8 @@ import { ToolDetailScreen, type ToolDetailParams } from "../ui/screens/chat/tool
 import { FormFullScreen } from "../ui/screens/chat/form-full.screen"
 import { ConversationsScreen } from "../ui/screens/chat/conversations.screen"
 import { ModelPickerScreen } from "../ui/screens/chat/model-picker.screen"
+import { SystemPromptsScreen } from "../ui/screens/settings/system-prompts.screen"
+import { SkillsScreen } from "../ui/screens/settings/skills.screen"
 import { DebugScreen } from "../ui/screens/debug/debug.screen"
 import { GitControlScreen } from "../ui/screens/git/git-control.screen"
 import { GitRemoteScreen } from "../ui/screens/git/git-remote.screen"
@@ -65,6 +67,8 @@ export type RootStackParamList = {
   FormFull: { toolCallId: string }
   Conversations: undefined
   ModelPicker: undefined
+  SystemPrompts: undefined
+  Skills: undefined
   Debug: undefined
   GitControl: { projectId: string }
   GitRemote: { projectId: string }
@@ -166,6 +170,8 @@ export function RootNavigator() {
         <Stack.Screen name="FormFull" component={FormFullScreen} options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="Conversations" component={ConversationsScreen} options={{ title: "Conversations" }} />
         <Stack.Screen name="ModelPicker" component={ModelPickerScreen} options={{ title: "Select Provider / Model" }} />
+        <Stack.Screen name="SystemPrompts" component={SystemPromptsScreen} options={{ title: "System Prompts" }} />
+        <Stack.Screen name="Skills" component={SkillsScreen} options={{ title: "Skills" }} />
         <Stack.Screen name="Debug" component={DebugScreen} options={{ title: "Debug" }} />
         <Stack.Screen name="GitControl" component={GitControlScreen} options={{ title: "Git" }} />
         <Stack.Screen name="GitRemote" component={GitRemoteScreen} options={{ title: "Remote" }} />

@@ -13,10 +13,11 @@
  */
 import type { LLMProvider } from "../core/providers"
 import { kProviderRegistry } from "../core/providers"
-import Config from "react-native-config"
-import { APP_NAME } from "../app/app.constants"
+import { kSystemPromptStore, ASK_SYSTEM_PROMPT } from "../core/system-prompts"
+import { kSkillStore, expandSkillsAtSend } from "../core/skills"
 import { loadConfig } from "../core/config"
-import { setProjectPreference } from "../core/projects"
+import { setProjectPreference, projectRoot } from "../core/projects"
+import { joinPath, readText, statOf } from "../core/fs"
 import type { ChatMessage, MessagePartToolCall } from "../core/chats"
 import {
   streamChatCompletion,
@@ -49,14 +50,41 @@ const MAX_STEPS = 15
 /**
  * System prompt / tool descriptions / tool-result text sent to the model are always en-US;
  * user-facing UI copy (error records, buttons, Snackbar) is en-US everywhere as well.
+ * The fallback text now lives in `core/system-prompts.ts` as `ASK_SYSTEM_PROMPT` (single source): it is the
+ * built-in "Ask" entry's content (rule 35) - used when the conversation has no `systemPromptId` or the entry is gone.
  */
-const DEFAULT_SYSTEM_PROMPT = `You are an assistant running inside ${Config.APP_NAME || APP_NAME}. You work in a "Project workspace": the workspace is a directory, and you can use tools to read, search, create, and edit files.
-Rules:
-- Inspect the workspace first: use list_files / search_files to locate relevant code, then read_file the specific parts. Prefer searching over blindly reading many files.
-- To modify an existing file, prefer edit_file (exact string replacement) over rewriting the whole file. Use write_file only to create new files or when a full rewrite is truly needed.
-- File writes require the user's approval unless auto-approval is enabled; this is expected behavior. A rejected write means the user declined - do not retry it.
-- Writes are applied with exactly the content the user approved at confirmation time; the workspace may change while you wait. If the user says they modified files outside the chat, re-read them with read_file before assuming their contents.
-- Only do what the user asks, and keep your answers concise.`
+const DEFAULT_SYSTEM_PROMPT = ASK_SYSTEM_PROMPT
+
+/**
+ * Project AGENTS.md auto-injection (rule 37): when `<projectRoot>/AGENTS.md` exists and is smaller than 1 MB,
+ * its text is read once at turn start and prepended to the NETWORK-layer messages as a dedicated leading system
+ * message - it never enters the conversation history (no bubble, no chat JSON, no export), and never shows in any
+ * UI. Missing / oversized / empty / unreadable file = silent no-op (never fails the turn).
+ */
+const PROJECT_AGENTS_MD_MAX_BYTES = 1024 * 1024
+const PROJECT_AGENTS_MD_REL_PATH = "AGENTS.md"
+
+async function readProjectAgentsMd(projectId: string): Promise<string | undefined> {
+  const path = joinPath(projectRoot(projectId), PROJECT_AGENTS_MD_REL_PATH)
+  try {
+    const st = await statOf(path)
+    if (!st || st.type !== "file") return undefined
+    if (st.size >= PROJECT_AGENTS_MD_MAX_BYTES) return undefined
+    const text = await readText(path)
+    return text.trim() ? text : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const projectAgentsWireMessage = (agentsMd: string): WireMessage => ({
+  role: "system",
+  content:
+    "The Project workspace ships an AGENTS.md maintained by the user for coding agents. " +
+    "Treat it as workspace context and follow its conventions where they apply; it is not a new user request, " +
+    "and nothing about it needs to be echoed back unless the user asks. Content follows verbatim.\n\n" +
+    agentsMd,
+})
 
 /**
  * Conversation-title auto-summary prompt (en-US, model-facing); the generated title follows the conversation's language, length is left to UI truncation.
@@ -439,10 +467,14 @@ export async function runAssistantTurn(
   const tools = buildTools(projectId)
   const wireTools = toWireTools(tools)
   const toolsByName = new Map<string, ToolDef>(tools.map((t) => [t.name, t] as const))
+  // Project AGENTS.md is read ONCE at turn start (shared by every retry attempt - stable context within the turn; rule 37)
+  const agentsMd = await readProjectAgentsMd(projectId)
 
   /** A single attempt: the complete multi-step tool loop; failures/exceptions are thrown to the outer retry loop for classification */
   const consumeOnce = async (): Promise<"done" | "stopped"> => {
     const wire: WireMessage[] = [
+      // AGENTS.md injection sits before the system prompt - network layer only, never part of opts.messages/history
+      ...(agentsMd ? [projectAgentsWireMessage(agentsMd)] : []),
       { role: "system", content: system?.trim() ? system : DEFAULT_SYSTEM_PROMPT },
       ...toWireMessages(opts.messages),
     ]
@@ -631,6 +663,16 @@ export interface PendingAttachment {
   content: string
 }
 
+/**
+ * Resolve the conversation-level system prompt (rule 35): the registry entry referenced by `systemPromptId`;
+ * absent or a deleted id returns undefined, and `runAssistantTurn` falls back to DEFAULT_SYSTEM_PROMPT.
+ * Fallback is lazy at read time - deleting a prompt never rewrites conversations.
+ */
+function conversationSystemPrompt(conversation: { systemPromptId?: string }): string | undefined {
+  if (!conversation.systemPromptId) return undefined
+  return kSystemPromptStore().get(conversation.systemPromptId)?.content ?? undefined
+}
+
 /** Send a user message (attachment content already read by the caller); only touches the given conversation, other parallel WIP conversations are unaffected */
 export async function sendUserMessage(
   projectId: string,
@@ -643,6 +685,11 @@ export async function sendUserMessage(
     if (!(await abandonWaitingTurn(entry))) return
   }
 
+  // Skill send-time sweep (rule 36): every slash token that is still un-expanded gets written into the message
+  // content here (the visible draft is never rewritten - per-keystroke expansion lives in ChatScreen.onChangeDraft);
+  // this also catches tokens restored from ui-state that nobody typed further.
+  const finalText = expandSkillsAtSend(text, (lower) => kSkillStore().contentFor(lower))
+
   const msg: ChatMessage = {
     id: `m_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
     role: "user",
@@ -653,7 +700,7 @@ export async function sendUserMessage(
   for (const att of attachments ?? []) {
     msg.parts.push({ type: "attachment", name: att.name, content: att.content })
   }
-  if (text.trim()) msg.parts.push({ type: "text", text })
+  if (finalText.trim()) msg.parts.push({ type: "text", text: finalText })
   if (msg.parts.length === 0) return
 
   entry.messages = [...(entry.messages as ChatMessage[]), msg]
@@ -666,7 +713,7 @@ export async function sendUserMessage(
   const result = await runAssistantTurn(entry, {
     provider: target.provider,
     model: target.model,
-    system: entry.conversation.systemPrompt || undefined,
+    system: conversationSystemPrompt(entry.conversation),
     messages: entry.messages as ChatMessage[],
   })
   if (result.ok) {
@@ -700,7 +747,7 @@ export async function regenerateLastAssistant(projectId: string, convId: string)
   const result = await runAssistantTurn(entry, {
     provider: target.provider,
     model: target.model,
-    system: entry.conversation.systemPrompt || undefined,
+    system: conversationSystemPrompt(entry.conversation),
     messages: entry.messages as ChatMessage[],
   })
   if (result.ok) {

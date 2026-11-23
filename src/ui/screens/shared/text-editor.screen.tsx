@@ -6,9 +6,11 @@
  * The input is UNCONTROLLED (defaultValue + ref written by onChangeText, value read only at save): the page
  * remounts per navigation and editing a 512 KB file never re-renders per keystroke (FilePreview edit gate).
  * Keyboard avoidance via useKeyboardLift (Android API 35+ edge-to-edge; lower levels use native adjustResize).
+ * readOnly mode (built-in Ask/Code, rule 35): the save icon disappears and the page renders the text as a
+ * SELECTABLE monospace view instead of TextInput (an Android editable=false TextInput cannot select).
  */
 import React, { useCallback, useEffect, useRef, useState } from "react"
-import { StyleSheet, TextInput as NativeTextInput } from "react-native"
+import { ScrollView, StyleSheet, Text, TextInput as NativeTextInput } from "react-native"
 import { IconButton, useTheme } from "react-native-paper"
 import type { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
@@ -21,7 +23,7 @@ import { useKeyboardLift } from "../../use-keyboard-lift"
 type Props = NativeStackScreenProps<RootStackParamList, "TextEditor">
 
 export function TextEditorScreen({ navigation, route }: Props) {
-  const { label, initialText = "", validate, onSave } = route.params
+  const { label, initialText = "", validate, onSave, readOnly } = route.params
   const theme = useTheme()
   const insets = useSafeAreaInsets()
   const lift = useKeyboardLift()
@@ -29,6 +31,7 @@ export function TextEditorScreen({ navigation, route }: Props) {
   const textRef = useRef(initialText)
 
   const doSave = useCallback(async () => {
+    if (!onSave) return
     setSaving(true)
     try {
       const value = textRef.current
@@ -49,9 +52,26 @@ export function TextEditorScreen({ navigation, route }: Props) {
   useEffect(() => {
     navigation.setOptions({
       title: label,
-      headerRight: () => <IconButton icon="content-save" size={22} disabled={saving} onPress={() => void doSave()} />,
+      // readOnly mode (built-in Ask / Code, rule 35): display only, no save button at all
+      headerRight: readOnly
+        ? undefined
+        : () => <IconButton icon="content-save" size={22} disabled={saving} onPress={() => void doSave()} />,
     })
-  }, [navigation, label, saving, doSave])
+  }, [navigation, label, saving, doSave, readOnly])
+
+  if (readOnly) {
+    // Read-only display = a plain selectable monospace Text (an Android editable=false TextInput never selects)
+    return (
+      <ScrollView style={styles.page} contentContainerStyle={styles.readContent}>
+        <Text
+          selectable
+          style={[styles.readText, { color: theme.colors.onSurface, fontSize: fs(theme, 13), lineHeight: fs(theme, 18) }]}
+        >
+          {initialText}
+        </Text>
+      </ScrollView>
+    )
+  }
 
   return (
     <NativeTextInput
@@ -87,4 +107,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 12,
   },
+  page: { flex: 1 },
+  readContent: { padding: 12, paddingBottom: 40 },
+  readText: { fontFamily: "monospace" },
 })

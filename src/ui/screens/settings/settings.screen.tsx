@@ -49,6 +49,22 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         <Divider />
         <List.Item
           style={styles.listItem}
+          title="System Prompts"
+          description="Reusable default-first prompt presets for the chat quick switcher"
+          left={(p) => <List.Icon {...p} icon="note-text-outline" />}
+          onPress={() => navigation.navigate("SystemPrompts")}
+        />
+        <Divider />
+        <List.Item
+          style={styles.listItem}
+          title="Skills"
+          description="Text snippets expanded by /name in the chat input"
+          left={(p) => <List.Icon {...p} icon="lightning-bolt-outline" />}
+          onPress={() => navigation.navigate("Skills")}
+        />
+        <Divider />
+        <List.Item
+          style={styles.listItem}
           title="Global Git Config"
           description="Credentials, commit author, and trusted SSH hosts"
           left={(p) => <List.Icon {...p} icon="git" />}

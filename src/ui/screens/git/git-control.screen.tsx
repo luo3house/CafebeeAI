@@ -21,6 +21,7 @@ import { CheckRow } from "../../components/option-row"
 import { AppDialog } from "../../components/app-dialog"
 import { dialogCompact } from "../../components/dialog-compact"
 import { DialogButton } from "../../components/dialog-button"
+import { useKeyboardLift } from "../../use-keyboard-lift"
 import { ConfirmDialog } from "../../components/confirm-dialog"
 import { showNotice } from "../../../state/notice"
 import { showToast } from "../../../state/toast"
@@ -34,6 +35,7 @@ export function GitControlScreen({ navigation, route }: Props) {
   const projectId = route.params.projectId
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+  const keyboardLift = useKeyboardLift()
   const snap = useSnapshot(gitState)
   const rt = snap.byProject[projectId]
   const busy = !!rt?.busy
@@ -206,163 +208,165 @@ export function GitControlScreen({ navigation, route }: Props) {
 
   return (
     <>
-      <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 18) }]}>Remote</Text>
-        {configured ? (
-          <>
-            <View style={[styles.remoteCard, { backgroundColor: theme.colors.surfaceVariant }]}>
-              <Text style={{ color: theme.colors.onSurface, fontSize: fs(theme, 13) }}>{"origin · " + (remoteUrl ?? "")}</Text>
-              <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }}>{"Default branch: " + (remoteBranch ?? "main")}</Text>
+      <View style={{ flex: 1, marginBottom: keyboardLift }} pointerEvents="box-none">
+        <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]} keyboardShouldPersistTaps="handled">
+          <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 18) }]}>Remote</Text>
+          {configured ? (
+            <>
+              <View style={[styles.remoteCard, { backgroundColor: theme.colors.surfaceVariant }]}>
+                <Text style={{ color: theme.colors.onSurface, fontSize: fs(theme, 13) }}>{"origin · " + (remoteUrl ?? "")}</Text>
+                <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }}>{"Default branch: " + (remoteBranch ?? "main")}</Text>
+              </View>
+              <Button style={styles.block} mode="outlined" icon="pencil-outline" disabled={busy} onPress={() => navigation.navigate("GitRemote", { projectId })}>
+                Manage remote
+              </Button>
+            </>
+          ) : (
+            <>
+              <Text style={[styles.block, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
+                No remote repository is set up for this project yet. Pull and Push stay unavailable until one is added.
+              </Text>
+              <Button style={styles.block} mode="contained" icon="plus" onPress={() => navigation.navigate("GitRemote", { projectId })}>
+                Add a remote
+              </Button>
+            </>
+          )}
+
+          <Divider style={styles.divider} />
+
+          <View
+            onLayout={(e) => {
+              pullSectionYRef.current = e.nativeEvent.layout.y
+            }}
+          >
+            <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 18) }]}>Pull</Text>
+            <TextInput
+              style={styles.block}
+              mode="outlined"
+              dense
+              label="Target branch"
+              value={pullBranch}
+              onChangeText={(t) => {
+                pullDirtyRef.current = true
+                setPullBranch(t)
+              }}
+              autoCapitalize="none"
+              disabled={busy || !configured}
+            />
+            <CheckRow
+              style={styles.block}
+              checked={forcePreAuth}
+              disabled={busy || !configured}
+              title="Force pull"
+              description="On conflict, overwrite local state with the remote branch without asking."
+              onPress={() => setForcePreAuth((v) => !v)}
+            />
+            <View style={styles.row}>
+              <Button
+                mode="outlined"
+                compact
+                icon="database-search"
+                disabled={busy || !configured || rt?.branchesLoading}
+                loading={!!rt?.branchesLoading}
+                onPress={() => void doFetchBranches()}
+              >
+                Fetch remote branches
+              </Button>
             </View>
-            <Button style={styles.block} mode="outlined" icon="pencil-outline" disabled={busy} onPress={() => navigation.navigate("GitRemote", { projectId })}>
-              Manage remote
+            {branches.length > 0 ? (
+              <View style={[styles.table, { backgroundColor: theme.colors.surfaceVariant }]}>
+                <View style={[styles.tr, styles.th]}>
+                  <Text style={[styles.td, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 11) }]}>BRANCH</Text>
+                  <Text style={[styles.tdSha, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 11) }]}>COMMIT</Text>
+                </View>
+                <Divider />
+                {branches.map((b, i) => (
+                  <AppPressable
+                    key={b.name}
+                    disabled={busy || !configured}
+                    pressedStyle={{ backgroundColor: theme.colors.primaryContainer }}
+                    onPress={() => {
+                      pullDirtyRef.current = true
+                      setPullBranch(b.name)
+                    }}
+                  >
+                    {i > 0 ? <Divider /> : null}
+                    <View style={styles.tr}>
+                      <Text
+                        style={{
+                          color: pullBranch === b.name ? theme.colors.onPrimaryContainer : theme.colors.onSurface,
+                          fontSize: fs(theme, 13),
+                          flex: 1,
+                          fontWeight: pullBranch === b.name ? "bold" : "normal",
+                        }}
+                        numberOfLines={1}
+                      >
+                        {b.name}
+                      </Text>
+                      <Text style={[styles.tdSha, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>{b.sha.slice(0, 7)}</Text>
+                    </View>
+                  </AppPressable>
+                ))}
+              </View>
+            ) : (
+              <Text style={[styles.block, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
+                {rt?.branchesLoading ? "Loading remote branches…" : configured ? "Fetch to pick a remote branch, or type it manually." : ""}
+              </Text>
+            )}
+            {renderProgress("sync")}
+            <Button
+              style={styles.block}
+              mode="contained"
+              icon="download"
+              disabled={busy || !configured}
+              loading={busy && rt?.kind === "sync"}
+              onPress={() => void doPull(forcePreAuth)}
+            >
+              Pull
             </Button>
-          </>
-        ) : (
-          <>
             <Text style={[styles.block, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
-              No remote repository is set up for this project yet. Pull and Push stay unavailable until one is added.
+              {
+                "Pull never creates merge commits. Local changes that would be overwritten block the pull; save them with a push first, or force pull to adopt the remote state wholesale."
+              }
             </Text>
-            <Button style={styles.block} mode="contained" icon="plus" onPress={() => navigation.navigate("GitRemote", { projectId })}>
-              Add a remote
-            </Button>
-          </>
-        )}
+          </View>
 
-        <Divider style={styles.divider} />
+          <Divider style={styles.divider} />
 
-        <View
-          onLayout={(e) => {
-            pullSectionYRef.current = e.nativeEvent.layout.y
-          }}
-        >
-          <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 18) }]}>Pull</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 18) }]}>Push</Text>
           <TextInput
             style={styles.block}
             mode="outlined"
             dense
-            label="Target branch"
-            value={pullBranch}
+            label="Commit message"
+            value={pushMessage}
+            onChangeText={setPushMessage}
+            multiline
+            numberOfLines={2}
+            disabled={busy || !configured}
+          />
+          <TextInput
+            style={styles.block}
+            mode="outlined"
+            dense
+            label="Branch"
+            value={pushBranch}
             onChangeText={(t) => {
-              pullDirtyRef.current = true
-              setPullBranch(t)
+              pushDirtyRef.current = true
+              setPushBranch(t)
             }}
             autoCapitalize="none"
             disabled={busy || !configured}
           />
-          <CheckRow
-            style={styles.block}
-            checked={forcePreAuth}
-            disabled={busy || !configured}
-            title="Force pull"
-            description="On conflict, overwrite local state with the remote branch without asking."
-            onPress={() => setForcePreAuth((v) => !v)}
-          />
-          <View style={styles.row}>
-            <Button
-              mode="outlined"
-              compact
-              icon="database-search"
-              disabled={busy || !configured || rt?.branchesLoading}
-              loading={!!rt?.branchesLoading}
-              onPress={() => void doFetchBranches()}
-            >
-              Fetch remote branches
-            </Button>
-          </View>
-          {branches.length > 0 ? (
-            <View style={[styles.table, { backgroundColor: theme.colors.surfaceVariant }]}>
-              <View style={[styles.tr, styles.th]}>
-                <Text style={[styles.td, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 11) }]}>BRANCH</Text>
-                <Text style={[styles.tdSha, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 11) }]}>COMMIT</Text>
-              </View>
-              <Divider />
-              {branches.map((b, i) => (
-                <AppPressable
-                  key={b.name}
-                  disabled={busy || !configured}
-                  pressedStyle={{ backgroundColor: theme.colors.primaryContainer }}
-                  onPress={() => {
-                    pullDirtyRef.current = true
-                    setPullBranch(b.name)
-                  }}
-                >
-                  {i > 0 ? <Divider /> : null}
-                  <View style={styles.tr}>
-                    <Text
-                      style={{
-                        color: pullBranch === b.name ? theme.colors.onPrimaryContainer : theme.colors.onSurface,
-                        fontSize: fs(theme, 13),
-                        flex: 1,
-                        fontWeight: pullBranch === b.name ? "bold" : "normal",
-                      }}
-                      numberOfLines={1}
-                    >
-                      {b.name}
-                    </Text>
-                    <Text style={[styles.tdSha, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>{b.sha.slice(0, 7)}</Text>
-                  </View>
-                </AppPressable>
-              ))}
-            </View>
-          ) : (
-            <Text style={[styles.block, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
-              {rt?.branchesLoading ? "Loading remote branches…" : configured ? "Fetch to pick a remote branch, or type it manually." : ""}
-            </Text>
-          )}
-          {renderProgress("sync")}
-          <Button
-            style={styles.block}
-            mode="contained"
-            icon="download"
-            disabled={busy || !configured}
-            loading={busy && rt?.kind === "sync"}
-            onPress={() => void doPull(forcePreAuth)}
-          >
-            Pull
+          {renderProgress("upload")}
+          <Button style={styles.block} mode="contained" icon="upload" disabled={busy || !configured} loading={busy && rt?.kind === "upload"} onPress={() => void doPush(false)}>
+            Push
           </Button>
           <Text style={[styles.block, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
-            {
-              "Pull never creates merge commits. Local changes that would be overwritten block the pull; save them with a push first, or force pull to adopt the remote state wholesale."
-            }
+            {"Push commits all project changes and uploads them to the remote branch."}
           </Text>
-        </View>
-
-        <Divider style={styles.divider} />
-
-        <Text style={[styles.sectionTitle, { color: theme.colors.onSurface, fontSize: fs(theme, 18) }]}>Push</Text>
-        <TextInput
-          style={styles.block}
-          mode="outlined"
-          dense
-          label="Commit message"
-          value={pushMessage}
-          onChangeText={setPushMessage}
-          multiline
-          numberOfLines={2}
-          disabled={busy || !configured}
-        />
-        <TextInput
-          style={styles.block}
-          mode="outlined"
-          dense
-          label="Branch"
-          value={pushBranch}
-          onChangeText={(t) => {
-            pushDirtyRef.current = true
-            setPushBranch(t)
-          }}
-          autoCapitalize="none"
-          disabled={busy || !configured}
-        />
-        {renderProgress("upload")}
-        <Button style={styles.block} mode="contained" icon="upload" disabled={busy || !configured} loading={busy && rt?.kind === "upload"} onPress={() => void doPush(false)}>
-          Push
-        </Button>
-        <Text style={[styles.block, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 12) }]}>
-          {"Push commits all project changes and uploads them to the remote branch."}
-        </Text>
-      </ScrollView>
+        </ScrollView>
+      </View>
 
       <AppDialog visible={pullConflict} onDismiss={() => setPullConflict(false)} style={styles.dialog}>
         <AppDialog.Title style={dialogCompact.title}>Pull conflict</AppDialog.Title>

@@ -39,7 +39,13 @@ export interface ChatMessage {
 export interface Conversation {
   id: string
   title: string
-  systemPrompt?: string
+  /**
+   * Conversation-level System Prompt binding: id of an entry in the global registry (`core/system-prompts.ts`).
+   * Absent - or an id whose entry has been deleted - falls back to the built-in Default prompt at send time
+   * (lazy, nothing rewritten on delete; rule 35). The legacy inline `systemPrompt` string field was dropped on
+   * 2026-11-23 (clean break: old files may still carry it, nothing reads it anymore).
+   */
+  systemPromptId?: string
   /** Conversation auto-summarization time (ISO string). Empty/null for new conversations; when the first Q&A round finishes and it is empty, stamp the current time and trigger summarization (one-shot, no retry regardless of outcome) */
   summaryAt?: string | null
   /** Session-level model binding (sticky): written by the pre-send picker / modelBar toggle; falls back to project preference prefer_provider when absent */
@@ -175,11 +181,10 @@ class ChatStore {
     return { conversation, messages: [] }
   }
 
-  async create(projectId: string, opts?: { title?: string; systemPrompt?: string }): Promise<Conversation> {
+  async create(projectId: string, opts?: { title?: string }): Promise<Conversation> {
     const conversation: Conversation = {
       id: uuid32(),
       title: opts?.title?.trim() || "",
-      systemPrompt: opts?.systemPrompt?.trim() || undefined,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
@@ -187,7 +192,7 @@ class ChatStore {
     return conversation
   }
 
-  /** Generic read-modify-write entry for conversation metadata (non-resident path; title/systemPrompt/model binding/summaryAt etc.).
+  /** Generic read-modify-write entry for conversation metadata (non-resident path; title/systemPromptId/model binding/summaryAt etc.).
    * Resident conversations must go through state/chat.updateConversationMeta (mutate the object via the registry then persist, preventing a debounced write-back of a stale copy). */
   async updateMeta(projectId: string, convId: string, patch: Partial<Conversation>): Promise<void> {
     const { conversation, messages } = await this.get(projectId, convId)

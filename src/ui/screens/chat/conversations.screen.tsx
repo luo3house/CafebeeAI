@@ -1,5 +1,5 @@
 /**
- * Conversations page: lists all conversations of the current Project with create/switch/rename/system prompt/delete (CRUD).
+ * Conversations page: lists all conversations of the current Project with create/switch/rename/delete (CRUD).
  * Row badges for multi-session parallelism WIP (priority: Needs attention > Error > Running):
  * - Needs attention = the conversation has a pending write card awaiting approval / form awaiting fill (derived live from toolflow/formflow pending, not gated by read state);
  * - Error = the last assistant reply failed and is unread (lastAssistantId ≠ lastReadId from the UI state file;
@@ -124,22 +124,6 @@ export function ConversationsScreen({ navigation }: Props) {
     await refresh()
   }
 
-  const openSystemPrompt = (convId: string) => {
-    setMenuFor(null)
-    const brief = briefs.find((b) => b.conversation.id === convId)
-    navigation.navigate("TextEditor", {
-      label: "System Prompt",
-      initialText: brief?.conversation.systemPrompt ?? "",
-      onSave: async (value) => {
-        const pid = snap.currentProjectId
-        if (!pid) return
-        await updateConversationMeta(pid, convId, { systemPrompt: String(value ?? "").trim() || undefined })
-        await refresh()
-        showToast("System prompt saved")
-      },
-    })
-  }
-
   const confirmDelete = async () => {
     const pid = snap.currentProjectId
     if (!pid || !deletingId) return
@@ -246,7 +230,6 @@ export function ConversationsScreen({ navigation }: Props) {
                             setRenameTitle(conv.title)
                           }}
                         />
-                        <Menu.Item title="System Prompt" leadingIcon="cog-outline" onPress={() => openSystemPrompt(conv.id)} />
                         <Menu.Item
                           title="Delete"
                           leadingIcon="delete-outline"
