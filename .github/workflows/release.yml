@@ -2,45 +2,116 @@ name: Release Android APK
 
 on:
   push:
-    tags:
-      - 'github-*'
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force rebuild even if the release already has uploaded assets'
+        required: false
+        default: 'false'
+        type: boolean
+
+# Serialize runs: 1 running + latest pending wins; older pending runs are cancelled
+# by GitHub (decision: rapid main pushes may skip intermediate versions).
+concurrency:
+  group: release-android
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build & publish signed Release APK
-    runs-on: ubuntu-latest
+  decide:
+    name: Decide whether to build
+    permissions:
+      contents: read
     defaults:
       run:
         shell: bash
-    permissions:
-      contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      need_build: ${{ steps.check.outputs.need_build }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    runs-on: ubuntu-latest
     steps:
+      - name: Enforce main branch (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_NAME" != "main" ]; then
+            echo "::error::Manual dispatch is only allowed from main (got '$GITHUB_REF_NAME')"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate tag github-<APP_VERSION> vs .env.github
-        id: version_check
+      - name: Read APP_VERSION from .env.github
+        id: version
         run: |
           set -euo pipefail
-          if [[ ! "$GITHUB_REF_NAME" =~ ^github-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Invalid release tag '$GITHUB_REF_NAME', expecting github-X.Y.Z"
+          if [ ! -f .env.github ]; then
+            echo "::error::.env.github not found; cannot determine release version"
             exit 1
           fi
-          ver="${GITHUB_REF_NAME#github-}"
           env_ver="$(sed -n -e 's/^APP_VERSION=//p' .env.github)"
           if [ -z "$env_ver" ]; then
-            echo "::error::.env.github missing APP_VERSION, cannot cross-check tag"
+            echo "::error::.env.github missing APP_VERSION; cannot determine release version"
             exit 1
           fi
-          if [ "$ver" != "$env_ver" ]; then
-            echo "::error::Tag '$GITHUB_REF_NAME' mismatches .env.github APP_VERSION=$env_ver"
-            echo "Rule 32 (dotenv = source of truth): edit APP_VERSION=$ver in .env.github and commit, then re-push the tag (and delete the old tag)"
+          if [[ ! "$env_ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::APP_VERSION '$env_ver' in .env.github is not X.Y.Z"
             exit 1
           fi
-          echo "version=$ver" >> "$GITHUB_OUTPUT"
-          echo "Tag + .env.github consistent: $ver"
+          echo "version=$env_ver" >> "$GITHUB_OUTPUT"
+          echo "tag=github-$env_ver" >> "$GITHUB_OUTPUT"
+
+      - name: Check release assets for the version
+        id: check
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          FORCE_INPUT: ${{ github.event.inputs.force }}
+        run: |
+          set -euo pipefail
+          force="false"
+          if [ "$FORCE_INPUT" = "true" ]; then force="true"; fi
+          if [ "$force" = "true" ]; then
+            echo "Force requested; need build"
+            echo "need_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          rel_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>/dev/null || true)"
+          if [ -z "$rel_json" ]; then
+            echo "Release ${TAG} does not exist; need build"
+            echo "need_build=true" >> "$GITHUB_OUTPUT"
+          else
+            n="$(printf '%s' "$rel_json" | jq -r '.assets | length')"
+            if [ "$n" -gt 0 ]; then
+              echo "::notice::Release ${TAG} already has ${n} uploaded asset(s); version frozen, nothing to build. Bump APP_VERSION in .env.github to ship new code, or dispatch with force=true"
+              echo "need_build=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "Release ${TAG} exists but has no uploaded assets; need build"
+              echo "need_build=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  release:
+    name: Build & publish signed Release APK
+    needs: decide
+    if: needs.decide.outputs.need_build == 'true'
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.decide.outputs.version }}
+      TAG: ${{ needs.decide.outputs.tag }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Node (engines >= 22.11.0)
         uses: actions/setup-node@v4
@@ -125,9 +196,7 @@ jobs:
             "$AS" verify --print-certs "$apk"
           fi
 
-      - name: Publish GitHub release and upload APK asset
-        env:
-          VERSION: ${{ steps.version_check.outputs.version }}
+      - name: Publish GitHub release (create if missing) and upload APK asset
         run: |
           set -euo pipefail
           apk="android/app/build/outputs/apk/github/release/app-github-release.apk"
@@ -137,17 +206,40 @@ jobs:
           renamed="${app_name}-${VERSION}-arm64-v8a.apk"
           cp "$apk" "$renamed"
 
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "Release exists (re-run / retry path); uploading asset"
-            gh release upload "$GITHUB_REF_NAME" "$renamed" --clobber
+          rel_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>/dev/null || true)"
+          if [ -n "$rel_json" ]; then
+            echo "Release ${TAG} already exists; uploading asset (state, incl. draft/prerelease, preserved)"
+            existing_sha="$(printf '%s' "$rel_json" | jq -r .target_commitish)"
+            if [ "$existing_sha" != "$GITHUB_SHA" ]; then
+              echo "::warning::Release ${TAG} targets commit $existing_sha; uploading APK built from $GITHUB_SHA"
+            fi
+            gh release upload "$TAG" "$renamed" --clobber
+            echo
+            echo "Final release:"
+            gh release view "$TAG"
+            exit 0
+          fi
+
+          # Release missing: create it. If the git tag already exists (orphan tag), the
+          # release is attached to that tag and the mismatch is only warned about.
+          if tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" -q .object.sha 2>/dev/null)"; then
+            peeled="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}" -q .object.sha 2>/dev/null || true)"
+            [ -n "$peeled" ] && tag_sha="$peeled"
+            if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+              echo "::warning::Tag ${TAG} exists (target $tag_sha) without a release; release will be created on that tag, APK built from $GITHUB_SHA"
+            fi
+            gh release create "$TAG" \
+              --generate-notes \
+              --title "${app_name} $VERSION" \
+              --latest
           else
-            gh release create "$GITHUB_REF_NAME" \
+            gh release create "$TAG" \
               --generate-notes \
               --title "${app_name} $VERSION" \
               --target "$GITHUB_SHA" \
               --latest
-            gh release upload "$GITHUB_REF_NAME" "$renamed" --clobber
           fi
+          gh release upload "$TAG" "$renamed" --clobber
           echo
           echo "Final release:"
-          gh release view "$GITHUB_REF_NAME"
+          gh release view "$TAG"
