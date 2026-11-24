@@ -114,13 +114,17 @@ class SkillStore {
   }
 
   async create(name: string, content: string): Promise<SkillEntry> {
-    const entry: SkillEntry = {
-      id: uuid32(),
-      name: name.trim(),
-      content,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }
+    return this.createAt(uuid32(), name, content)
+  }
+
+  /** Id-preserving create used by the Skill YAML import (rule 38): keeps a free `spec.id` verbatim. */
+  async createWithId(id: string, name: string, content: string): Promise<SkillEntry> {
+    if (this.get(id)) throw new Error("a skill with this id already exists")
+    return this.createAt(id, name, content)
+  }
+
+  private async createAt(id: string, name: string, content: string): Promise<SkillEntry> {
+    const entry: SkillEntry = { id, name: name.trim(), content, createdAt: Date.now(), updatedAt: Date.now() }
     this.skills.push(entry)
     await this.persist()
     return entry

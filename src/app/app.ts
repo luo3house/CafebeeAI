@@ -9,6 +9,7 @@ import { kSecretStore } from "../core/secrets"
 import { kGitApp } from "../core/git"
 import { kSystemPromptStore } from "../core/system-prompts"
 import { kSkillStore } from "../core/skills"
+import { hydrateAppSettings } from "../state/settings"
 import { sweepShareCache } from "../core/import-export"
 import { runProjectSweepIfDue } from "../core/project-sweeper"
 import { flushAllSessions } from "../state/chat"
@@ -35,6 +36,9 @@ class App {
       kGitApp().load(),
       kSystemPromptStore().load(),
       kSkillStore().load(),
+      // App-level preferences (rule 31 persistence): theme / reasoning mode / font scale / auto-approve hydrate
+      // from app-settings.json before the first frame paints theme-dependent UI.
+      hydrateAppSettings(),
     ])
     // Periodic stale-cache cleanup (24h TTL): fire-and-forget, export/open staging is never blocking startup.
     sweepShareCache().catch(() => {})

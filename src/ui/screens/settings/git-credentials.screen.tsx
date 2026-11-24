@@ -8,10 +8,18 @@
  * (core/git-cred-yaml.ts: three `uses_*` blocks, exactly one filled). Generation prefills the SSH block with the
  * PEM pair; the key is visible/copyable in the editor, so there is no post-save preview dialog. Create and edit
  * both go through the TextEditor; `parseCredYaml` is the validate step and `onSave` writes kGitCredentialStore.
+ *
+ * Transfer (rule 38): shared YAML dialogs in the PageHeader. Export streams one `v1/git_credential` document
+ * per credential — password / token / private PEM / passphrase written as `-- DEDUCTED --` placeholders unless
+ * the "Include secrets" checkbox opts in; `public_key` ships plain text (needed to re-register the key).
+ * Import is kind-routed (foreign documents count as skipped) and never overwrites a stored secret with a
+ * placeholder. Row actions sit in the standard dots-horizontal menu: the Edit entry opens the full-plaintext
+ * template — that IS the sanctioned "view / copy my keys" path (rule E decision), so there are no separate
+ * read-only key previews.
  */
 import React, { useCallback, useLayoutEffect, useState } from "react"
 import { FlatList, RefreshControl, StyleSheet, View } from "react-native"
-import { Card, IconButton, List, Text, useTheme } from "react-native-paper"
+import { Card, IconButton, List, Menu, Text, useTheme } from "react-native-paper"
 import { useFocusEffect } from "@react-navigation/native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import Config from "react-native-config"
@@ -22,6 +30,8 @@ import { dialogCompact } from "../../components/dialog-compact"
 import { DialogButton } from "../../components/dialog-button"
 import { ConfirmDialog } from "../../components/confirm-dialog"
 import { CheckRow } from "../../components/option-row"
+import { useYamlTransfer } from "../../components/yaml-transfer"
+import { KIND_GIT_CREDENTIAL } from "../../../core/transfer"
 import { showNotice } from "../../../state/notice"
 import { showToast } from "../../../state/toast"
 import {
@@ -49,15 +59,35 @@ export function GitCredentialsScreen({ navigation }: { navigation: any }) {
   const [choice, setChoice] = useState<TypeChoice | null>(null)
   const [generating, setGenerating] = useState(false)
   const [deleting, setDeleting] = useState<GitCredentialMeta | null>(null)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
 
   const refresh = useCallback(() => setCreds(kGitCredentialStore().list()), [])
   useFocusEffect(refresh)
 
+  const transfer = useYamlTransfer({
+    navigation,
+    accepted: [KIND_GIT_CREDENTIAL],
+    filePrefix: "git-credentials",
+    noun: "git credentials",
+    withSecrets: true,
+    onApplied: refresh,
+    exportDescription:
+      "Writes one v1/git_credential document per entry. Names, hosts, usernames and PUBLIC keys always ship as plain text; passwords, access tokens and the private PEM go out as \"-- DEDUCTED --\" placeholders unless you include them.",
+    importDescription:
+      "Import v1/git_credential documents: pick an existing .yaml file or paste the text to review before applying. Placeholder secrets keep the stored value; only real values are written.",
+  })
+
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => <IconButton icon="plus" size={22} onPress={() => setChoice({ generate: false })} />,
+      headerRight: () => (
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <IconButton icon="export-variant" size={20} disabled={transfer.exporting} onPress={transfer.openExport} />
+          <IconButton icon="file-import" size={20} disabled={transfer.importing} onPress={transfer.openImport} />
+          <IconButton icon="plus" size={22} onPress={() => setChoice({ generate: false })} />
+        </View>
+      ),
     })
-  }, [navigation])
+  }, [navigation, transfer.exporting, transfer.importing, transfer.openExport, transfer.openImport])
 
   const openEditor = (opts: { key?: { publicLine: string; privatePem: string }; editId?: string; doc?: UnifiedCredDoc }) => {
     const editing = !!opts.editId
@@ -191,8 +221,28 @@ export function GitCredentialsScreen({ navigation }: { navigation: any }) {
               left={(props) => <List.Icon {...props} icon={credentialTypeIcon(item)} />}
               right={() => (
                 <View style={styles.cardActions}>
-                  <IconButton icon="pencil-outline" size={20} onPress={() => void startEdit(item)} />
-                  <IconButton icon="delete-outline" size={20} onPress={() => setDeleting(item)} />
+                  <Menu
+                    visible={menuFor === item.id}
+                    onDismiss={() => setMenuFor(null)}
+                    anchor={<IconButton icon="dots-horizontal" size={20} onPress={() => setMenuFor(item.id)} />}
+                  >
+                    <Menu.Item
+                      title="Edit"
+                      leadingIcon="pencil-outline"
+                      onPress={() => {
+                        setMenuFor(null)
+                        void startEdit(item)
+                      }}
+                    />
+                    <Menu.Item
+                      title="Delete"
+                      leadingIcon="delete-outline"
+                      onPress={() => {
+                        setMenuFor(null)
+                        setDeleting(item)
+                      }}
+                    />
+                  </Menu>
                 </View>
               )}
             />
@@ -231,6 +281,8 @@ export function GitCredentialsScreen({ navigation }: { navigation: any }) {
         onConfirm={() => void doDelete()}
         onCancel={() => setDeleting(null)}
       />
+
+      {transfer.dialogs}
     </View>
   )
 }

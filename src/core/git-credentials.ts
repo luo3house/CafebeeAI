@@ -133,8 +133,29 @@ class GitCredentialStore {
     hostPrefix?: string
     secret?: GitCredentialSecret
   }): Promise<GitCredentialMeta> {
+    return this.createAt(uuid32(), input)
+  }
+
+  /**
+   * Id-preserving create used by the Git credentials YAML import (rule 38): a free id in the document is kept
+   * verbatim (project git bindings reference credential ids). Throws on collision — the import engine checks
+   * first, this guard backstops direct callers.
+   */
+  async createWithId(id: string, input: Parameters<GitCredentialStore["create"]>[0]): Promise<GitCredentialMeta> {
+    if (this.get(id)) throw new Error("a credential with this id already exists")
+    return this.createAt(id, input)
+  }
+
+  private async createAt(id: string, input: {
+    name: string
+    type: GitCredentialType
+    username?: string
+    publicKey?: string
+    hostPrefix?: string
+    secret?: GitCredentialSecret
+  }): Promise<GitCredentialMeta> {
     const meta: GitCredentialMeta = {
-      id: uuid32(),
+      id,
       name: input.name.trim(),
       type: input.type,
       username: input.username || undefined,

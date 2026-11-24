@@ -7,6 +7,8 @@
  * (only its save creates the entry, backing out leaves no orphan); delete asks through ConfirmDialog and relies
  * on the lazy fallback (bound conversations then just resolve to Ask).
  * Name checks: non-empty, ≤ 24 chars, unique case-insensitively (built-in names reserved); content must not be blank.
+ * Transfer (rule 38): shared YAML dialogs in the PageHeader - the stream carries one `v1/system_prompt` document
+ * per CUSTOM row (built-ins are never exported / importable), name collisions with a different entry skip+report.
  */
 import React, { useCallback, useLayoutEffect, useState } from "react"
 import { FlatList, RefreshControl, StyleSheet, View } from "react-native"
@@ -18,6 +20,8 @@ import { dialogCompact } from "../../components/dialog-compact"
 import { DialogButton } from "../../components/dialog-button"
 import { ConfirmDialog } from "../../components/confirm-dialog"
 import { AppPressable } from "../../components/app-pressable"
+import { useYamlTransfer } from "../../components/yaml-transfer"
+import { KIND_SYSTEM_PROMPT } from "../../../core/transfer"
 import { showNotice } from "../../../state/notice"
 import { showToast } from "../../../state/toast"
 import {
@@ -46,20 +50,37 @@ export function SystemPromptsScreen({ navigation }: { navigation: any }) {
   const refresh = useCallback(() => setEntries(kSystemPromptStore().list()), [])
   useFocusEffect(refresh)
 
+  const transfer = useYamlTransfer({
+    navigation,
+    accepted: [KIND_SYSTEM_PROMPT],
+    filePrefix: "system-prompts",
+    noun: "system prompts",
+    withSecrets: false,
+    onApplied: refresh,
+    exportDescription:
+      "Writes one v1/system_prompt document per custom prompt (the built-in Ask / Code travel with the app and are never exported).",
+    importDescription:
+      "Import v1/system_prompt documents: pick an existing .yaml file, or enter the text to review it before applying. A prompt whose name collides with a different entry is skipped and reported.",
+  })
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <IconButton
-          icon="plus"
-          size={22}
-          onPress={() => {
-            setCreateName("")
-            setCreating(true)
-          }}
-        />
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <IconButton icon="export-variant" size={20} disabled={transfer.exporting} onPress={transfer.openExport} />
+          <IconButton icon="file-import" size={20} disabled={transfer.importing} onPress={transfer.openImport} />
+          <IconButton
+            icon="plus"
+            size={22}
+            onPress={() => {
+              setCreateName("")
+              setCreating(true)
+            }}
+          />
+        </View>
       ),
     })
-  }, [navigation])
+  }, [navigation, transfer.exporting, transfer.importing, transfer.openExport, transfer.openImport])
 
   const createInputRef = useModalInputFocus(creating)
   const renameInputRef = useModalInputFocus(renaming !== null)
@@ -235,6 +256,8 @@ export function SystemPromptsScreen({ navigation }: { navigation: any }) {
         onConfirm={() => void doDelete()}
         onCancel={() => setDeleting(null)}
       />
+
+      {transfer.dialogs}
     </View>
   )
 }

@@ -128,13 +128,21 @@ class SystemPromptStore {
   }
 
   async create(name: string, content: string): Promise<SystemPromptEntry> {
-    const entry: SystemPromptEntry = {
-      id: uuid32(),
-      name: name.trim(),
-      content,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }
+    return this.createAt(uuid32(), name, content)
+  }
+
+  /**
+   * Id-preserving create used by the System prompt YAML import (rule 38). Built-in ids are reserved and a
+   * colliding stored id is rejected - the import checks first, this guard backstops direct callers.
+   */
+  async createWithId(id: string, name: string, content: string): Promise<SystemPromptEntry> {
+    if (isBuiltinSystemPromptId(id)) throw new Error(`id "${id}" is reserved by a built-in prompt`)
+    if (this.storedOnly(id)) throw new Error("a prompt with this id already exists")
+    return this.createAt(id, name, content)
+  }
+
+  private async createAt(id: string, name: string, content: string): Promise<SystemPromptEntry> {
+    const entry: SystemPromptEntry = { id, name: name.trim(), content, createdAt: Date.now(), updatedAt: Date.now() }
     this.prompts.push(entry)
     await this.persist()
     return entry

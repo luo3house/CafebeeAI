@@ -9,12 +9,27 @@ import { useSnapshot } from "valtio"
 import { settings, setThemeMode, setReasoningMode, setAutoApproveWrites, setFontScale, FONT_SCALE_PRESETS, type ThemeMode } from "../../../state/settings"
 import { APP_BUILD_LABEL } from "../../../app/app.constants"
 import { ConfirmDialog } from "../../components/confirm-dialog"
+import { useYamlTransfer } from "../../components/yaml-transfer"
+import { ALL_KINDS } from "../../../core/transfer"
 import Config from "react-native-config"
 
 export function SettingsScreen({ navigation }: { navigation: any }) {
   const snap = useSnapshot(settings)
   const insets = useSafeAreaInsets()
   const [confirmAuto, setConfirmAuto] = useState(false)
+
+  // Full-app transfer (rule 38): the one surface that imports/exports ALL five kinds in one stream.
+  const backup = useYamlTransfer({
+    navigation,
+    accepted: ALL_KINDS,
+    filePrefix: "backup",
+    noun: "app data",
+    withSecrets: true,
+    exportDescription:
+      "Writes one backup stream: v1/provider documents, v1/git_credential documents, v1/system_prompt documents, v1/skill documents, then the single v1/app_settings document (theme, reasoning mode, font size, auto-approve). Secret values are written as \"-- DEDUCTED --\" placeholders unless you include them.",
+    importDescription:
+      "Apply a full or partial v1/* backup: every document whose kind this app knows is routed to its registry (the kind pages can also import single-kind streams on their own). Ids are preserved whenever they are free.",
+  })
 
   const toggleAutoApprove = (next: boolean) => {
     if (next) setConfirmAuto(true)
@@ -141,7 +156,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         <ConfirmDialog
           visible={confirmAuto}
           title="Enable auto-approve?"
-          body="AI file writes, edits, and URL downloads will run automatically without asking each time. Judge risky operations yourself; restarting the app resets this to off."
+          body="AI file writes, edits, and URL downloads will run automatically without asking each time. Judge risky operations yourself; the choice is kept across restarts."
           confirmLabel="Enable"
           danger
           onConfirm={() => {
@@ -151,6 +166,27 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
           onCancel={() => setConfirmAuto(false)}
         />
       </List.Section>
+
+      <List.Section>
+        <List.Subheader>Data & backup</List.Subheader>
+        <List.Item
+          style={styles.listItem}
+          title="Export all data"
+          description="One YAML stream: providers, git credentials, prompts, skills, settings"
+          left={(p) => <List.Icon {...p} icon="export-variant" />}
+          onPress={backup.openExport}
+        />
+        <Divider />
+        <List.Item
+          style={styles.listItem}
+          title="Import data"
+          description="Apply a backup file or pasted text; each document routes to its kind"
+          left={(p) => <List.Icon {...p} icon="file-import" />}
+          onPress={backup.openImport}
+        />
+      </List.Section>
+
+      {backup.dialogs}
     </ScrollView>
   )
 }

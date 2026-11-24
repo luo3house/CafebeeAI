@@ -16,6 +16,8 @@ import { AppDialog } from "../../components/app-dialog"
 import { dialogCompact } from "../../components/dialog-compact"
 import { DialogButton } from "../../components/dialog-button"
 import { ConfirmDialog } from "../../components/confirm-dialog"
+import { useYamlTransfer } from "../../components/yaml-transfer"
+import { KIND_SKILL } from "../../../core/transfer"
 import { showNotice } from "../../../state/notice"
 import { showToast } from "../../../state/toast"
 import { contentNotBlank } from "../../../core/system-prompts"
@@ -44,20 +46,36 @@ export function SkillsScreen({ navigation }: { navigation: any }) {
   const refresh = useCallback(() => setEntries(kSkillStore().list()), [])
   useFocusEffect(refresh)
 
+  const transfer = useYamlTransfer({
+    navigation,
+    accepted: [KIND_SKILL],
+    filePrefix: "skills",
+    noun: "skills",
+    withSecrets: false,
+    onApplied: refresh,
+    exportDescription: "Writes one v1/skill document per skill (name + content).",
+    importDescription:
+      "Import v1/skill documents: pick an existing .yaml file, or enter the text to review it before applying. A skill whose name collides with a different entry is skipped and reported; names must match [A-Za-z0-9_-].",
+  })
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <IconButton
-          icon="plus"
-          size={22}
-          onPress={() => {
-            setCreateName("")
-            setCreating(true)
-          }}
-        />
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <IconButton icon="export-variant" size={20} disabled={transfer.exporting} onPress={transfer.openExport} />
+          <IconButton icon="file-import" size={20} disabled={transfer.importing} onPress={transfer.openImport} />
+          <IconButton
+            icon="plus"
+            size={22}
+            onPress={() => {
+              setCreateName("")
+              setCreating(true)
+            }}
+          />
+        </View>
       ),
     })
-  }, [navigation])
+  }, [navigation, transfer.exporting, transfer.importing, transfer.openExport, transfer.openImport])
 
   const createInputRef = useModalInputFocus(creating)
   const renameInputRef = useModalInputFocus(renaming !== null)
@@ -224,6 +242,8 @@ export function SkillsScreen({ navigation }: { navigation: any }) {
         onConfirm={() => void doDelete()}
         onCancel={() => setDeleting(null)}
       />
+
+      {transfer.dialogs}
     </View>
   )
 }
