@@ -80,11 +80,11 @@ jobs:
             echo "need_build=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          rel_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>/dev/null || true)"
-          if [ -z "$rel_json" ]; then
-            echo "Release ${TAG} does not exist; need build"
-            echo "need_build=true" >> "$GITHUB_OUTPUT"
-          else
+          rel_exists="no"
+          if rel_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>/dev/null)"; then
+            rel_exists="yes"
+          fi
+          if [ "$rel_exists" = "yes" ]; then
             n="$(printf '%s' "$rel_json" | jq -r '.assets | length')"
             if [ "$n" -gt 0 ]; then
               echo "::notice::Release ${TAG} already has ${n} uploaded asset(s); version frozen, nothing to build. Bump APP_VERSION in .env.github to ship new code, or dispatch with force=true"
@@ -93,6 +93,9 @@ jobs:
               echo "Release ${TAG} exists but has no uploaded assets; need build"
               echo "need_build=true" >> "$GITHUB_OUTPUT"
             fi
+          else
+            echo "Release ${TAG} does not exist; need build"
+            echo "need_build=true" >> "$GITHUB_OUTPUT"
           fi
 
   release:
@@ -206,8 +209,11 @@ jobs:
           renamed="${app_name}-${VERSION}-arm64-v8a.apk"
           cp "$apk" "$renamed"
 
-          rel_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>/dev/null || true)"
-          if [ -n "$rel_json" ]; then
+          release_exists="no"
+          if rel_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>/dev/null)"; then
+            release_exists="yes"
+          fi
+          if [ "$release_exists" = "yes" ]; then
             echo "Release ${TAG} already exists; uploading asset (state, incl. draft/prerelease, preserved)"
             existing_sha="$(printf '%s' "$rel_json" | jq -r .target_commitish)"
             if [ "$existing_sha" != "$GITHUB_SHA" ]; then
@@ -216,7 +222,7 @@ jobs:
             gh release upload "$TAG" "$renamed" --clobber
             echo
             echo "Final release:"
-            gh release view "$TAG"
+            gh release view "$TAG" || true
             exit 0
           fi
 
@@ -242,4 +248,4 @@ jobs:
           gh release upload "$TAG" "$renamed" --clobber
           echo
           echo "Final release:"
-          gh release view "$TAG"
+          gh release view "$TAG" || true
