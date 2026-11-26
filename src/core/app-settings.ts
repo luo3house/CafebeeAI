@@ -32,6 +32,8 @@ export const AppSettingsSpecSchema = z.object({
     .refine((v) => (FONT_SCALE_PRESETS_LOCAL as readonly number[]).includes(v), "font_scale must be one of 0.9, 1, 1.1, 1.25")
     .optional(),
   auto_approve_writes: z.boolean().optional(),
+  // persisted locally (rule 39) but NEVER applied on import - enabling needs the interactive permission ask
+  completion_notifications: z.boolean().optional(),
 })
 
 export type AppSettingsSpec = z.infer<typeof AppSettingsSpecSchema>

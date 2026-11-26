@@ -33,6 +33,7 @@
     "react-native-gesture-handler": "^3.0.1",
     "react-native-linear-gradient": "3.0.0-beta.2",
     "react-native-paper": "^5.15.4",
+    "react-native-app-notify": "file:./packages/react-native-app-notify",
     "react-native-pocket-git": "file:./packages/react-native-pocket-git",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "^5.8.0",

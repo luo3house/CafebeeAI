@@ -1,0 +1,26 @@
+{
+  "name": "react-native-app-notify",
+  "version": "0.1.0",
+  "description": "Local completion notifications + battery-optimization helpers for CafebeeAI",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "react-native": "src/index.ts",
+  "codegenConfig": {
+    "name": "appnotifySpec",
+    "type": "modules",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.cafebeeai.appnotify"
+    }
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "keywords": [
+    "react-native",
+    "notifications",
+    "battery"
+  ],
+  "license": "MIT"
+}

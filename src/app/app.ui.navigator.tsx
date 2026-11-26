@@ -41,10 +41,12 @@ import { GitRemoteScreen } from "../ui/screens/git/git-remote.screen"
 import { GitCloneScreen } from "../ui/screens/git/git-clone.screen"
 import { GitCredentialsScreen } from "../ui/screens/settings/git-credentials.screen"
 import { GitOptionsScreen } from "../ui/screens/settings/git-options.screen"
-import { GitTrustedHostsScreen } from "../ui/screens/settings/git-trusted-hosts.screen"
 import { GitConfigScreen } from "../ui/screens/git/git-config.screen"
+import { GitTrustedHostsScreen } from "../ui/screens/settings/git-trusted-hosts.screen"
+import { BatteryOptimizationScreen } from "../ui/screens/settings/battery-optimization.screen"
 import { Sidebar } from "../ui/components/sidebar"
 import { bindModelPickerNavigator } from "../state/modelpicker"
+import { bindNotificationNavigator } from "../state/notification-nav"
 
 export type AppDrawerParamList = {
   ChatC: undefined
@@ -77,6 +79,7 @@ export type RootStackParamList = {
   GitCredentials: undefined
   GitOptions: undefined
   GitTrustedHosts: undefined
+  BatteryOptimization: undefined
 }
 
 type ScreenNavigator = ReturnType<typeof createNativeStackNavigator<RootStackParamList>>
@@ -107,6 +110,15 @@ bindModelPickerNavigator(() => {
   if (ref.getCurrentRoute()?.name === "ModelPicker") return true
   ref.navigate("ModelPicker")
   return true
+})
+
+// Notification taps drive navigation from state/notification-nav (reverse binding, same reason as the picker:
+// state modules must not import the navigator). Pops any pushed screen back to the chat page; the target
+// project/conversation was already bound by openNotificationTarget.
+bindNotificationNavigator(() => {
+  const ref = kNavigationRef()
+  if (!ref.isReady()) return
+  ref.navigate("Home", { screen: "ChatC" })
 })
 
 /** Safely open/close the home drawer from outside components (dispatched to the currently focused Drawer via the global container ref) */
@@ -180,6 +192,7 @@ export function RootNavigator() {
         <Stack.Screen name="GitCredentials" component={GitCredentialsScreen} options={{ title: "Git Credentials" }} />
         <Stack.Screen name="GitOptions" component={GitOptionsScreen} options={{ title: "Git Options" }} />
         <Stack.Screen name="GitTrustedHosts" component={GitTrustedHostsScreen} options={{ title: "Trusted Hosts" }} />
+        <Stack.Screen name="BatteryOptimization" component={BatteryOptimizationScreen} options={{ title: "Battery optimization" }} />
       </Stack.Navigator>
     </NavigationContainer>
   )

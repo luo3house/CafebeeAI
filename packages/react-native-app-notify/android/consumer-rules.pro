@@ -1,0 +1,1 @@
+# No consumer-side ProGuard rules needed (release minify is off in this app).

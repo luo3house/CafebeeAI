@@ -72,8 +72,18 @@ function appSettingsTransfer(spec: unknown): { apply?: () => Promise<"created" |
     return { message: `invalid app_settings document${at}: ${issue?.message ?? "schema mismatch"}` }
   }
   const data = parsed.data as AppSettingsSpec
-  if (Object.keys(data).length === 0) {
-    return { message: "spec carries none of theme_mode / reasoning_mode / font_scale / auto_approve_writes" }
+  // completion_notifications never counts as applicable: import never applies it (rule 39 - enabling
+  // requires the interactive permission ask), so a document carrying only that key has nothing to apply.
+  const applicableKeys = (["theme_mode", "reasoning_mode", "font_scale", "auto_approve_writes"] as const).filter(
+    (k) => data[k] !== undefined
+  )
+  if (applicableKeys.length === 0) {
+    return {
+      message:
+        data.completion_notifications !== undefined
+          ? "spec carries only completion_notifications, which import never applies (enable notifications in Settings)"
+          : "spec carries none of theme_mode / reasoning_mode / font_scale / auto_approve_writes",
+    }
   }
   return {
     apply: async () => {

@@ -19,6 +19,7 @@ import { showNotice } from "../../../state/notice"
 import { showToast } from "../../../state/toast"
 import { TagButton } from "../../components/tag-button"
 import { GitDemoSection } from "./git-demo.section"
+import { NotificationDemoSection } from "./notification-demo.section"
 import {
   ToolCard,
   type ToolCardDebugWritePending,
@@ -280,6 +281,7 @@ export function DebugScreen() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 12, paddingBottom: insets.bottom + 12 }}>
+      <NotificationDemoSection />
       <GitDemoSection />
       <View style={[styles.table, { borderColor: theme.colors.outlineVariant }]}>
         <View style={[styles.row, { borderBottomWidth: hairline, borderColor: theme.colors.outlineVariant }]}>

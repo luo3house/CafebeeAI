@@ -15,7 +15,7 @@
  * sweep lives in llm/chat.ts) and the debounced candidate strip is a self-subscribed FC rendered above the input.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { StyleSheet, Text, View, KeyboardAvoidingView, Platform, Clipboard, Keyboard } from "react-native"
+import { StyleSheet, Text, View, KeyboardAvoidingView, Platform, Clipboard, Keyboard, AppState } from "react-native"
 import { Appbar, IconButton, ActivityIndicator, TextInput, useTheme } from "react-native-paper"
 import { fs, type MD3Theme } from "../../../app/app.ui.theme"
 import type { FlashListRef } from "@shopify/flash-list"
@@ -54,6 +54,8 @@ import { useModalInputFocus } from "../../use-modal-input-focus"
 import { kApp } from "../../../app/app"
 import { kSystemPromptStore, SYSTEM_PROMPT_ASK_ID } from "../../../core/system-prompts"
 import { kSkillStore, expandSkillsOnEdit } from "../../../core/skills"
+import { consumeInitialNotificationTap, onNotificationTap, syncVisibleConversation } from "../../../state/notifications"
+import { openNotificationTarget } from "../../../state/notification-nav"
 import { SystemPromptPicker } from "./system-prompt-picker"
 import { SkillHintStrip } from "./skill-hint-strip"
 import type { AppNavigation } from "../../../app/app.ui.navigator"
@@ -167,25 +169,42 @@ export function ChatScreen({ navigation }: NavProps) {
   useEffect(() => {
     if (!appReady || !projectId) return
     void (async () => {
-      const briefs = await kChatStore().list(projectId)
-      if (runtime.currentProjectId !== projectId) return // race guard: project switched during await
+      // Cold-start notification tap: open its project/conversation (explicit entry → markRead) before the
+      // normal landing binding; a deleted target simply falls through to the standard landing below.
+      const tap = await consumeInitialNotificationTap()
+      if (tap) await openNotificationTarget(tap)
+      const pid = runtime.currentProjectId
+      const briefs = await kChatStore().list(pid)
+      if (runtime.currentProjectId !== pid) return // race guard: project switched during await
       let target = runtime.currentConversationId
       if (!target || !briefs.some((b) => b.conversation.id === target)) {
         if (!briefs.length) {
-          const created = await kChatStore().create(projectId)
+          const created = await kChatStore().create(pid)
           target = created.id
         } else {
           target = briefs[0].conversation.id
         }
       }
-      if (runtime.currentProjectId !== projectId) return // create may also yield at await; validate once more before binding
+      if (runtime.currentProjectId !== pid) return // create may also yield at await; validate once more before binding
       // Programmatic auto-binding never marks read (project-switch/cold-start landings swallow no badges, R8 decision)
-      await bindConversation(projectId, target, { markRead: false })
-      void refreshConversations(projectId)
+      await bindConversation(pid, target, { markRead: false })
+      void refreshConversations(pid)
       void refreshLabel()
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appReady, projectId, snap.currentConversationId])
+
+  // Warm notification taps (app alive): the native module emits one event per notification tap
+  useEffect(() => onNotificationTap((tap) => void openNotificationTarget(tap)), [])
+
+  // Returning to the app while the chat page is actually the visible screen → the bound conversation's
+  // leftover notification is stale (resuming on a pushed screen keeps it: the user is not looking at the chat)
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && navigation.isFocused()) syncVisibleConversation()
+    })
+    return () => sub.remove()
+  }, [navigation])
 
   const refreshConversations = async (pid: string) => {
     const briefs = await kChatStore().list(pid)
@@ -222,6 +241,7 @@ export function ChatScreen({ navigation }: NavProps) {
     return navigation.addListener("focus", () => {
       void refreshLabel()
       setPromptTick((t) => t + 1) // return from the System Prompts CRUD page: re-read the registry name for the hint/picker
+      syncVisibleConversation() // the bound conversation is on screen → its notification (if any) is stale
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

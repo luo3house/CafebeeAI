@@ -18,6 +18,7 @@ import { cancelFormsFor } from "./formflow"
 import { cancelWriteConfirmationsFor } from "./toolflow"
 import { kChatStore, lastTerminalAssistantId, type ChatMessage, type Conversation } from "../core/chats"
 import { loadUiState, updateUiState, flushUiState } from "../core/ui-state"
+import { cancelConversationNotification } from "./notifications"
 
 export interface SessionEntry {
   projectId: string
@@ -206,6 +207,7 @@ export function releaseConversation(projectId: string, convId: string): void {
     entry.stopped = true
     cancelFormsFor(projectId, convId)
     cancelWriteConfirmationsFor(projectId, convId)
+    cancelConversationNotification(convId)
     dropEntry(entry)
   }
 }
@@ -215,6 +217,7 @@ export function dropProjectSessions(projectId: string): void {
   for (const entry of [...entries.values()]) {
     if (entry.projectId !== projectId) continue
     abortTurnHandle(entry.projectId, entry.convId)
+    cancelConversationNotification(entry.convId)
     dropEntry(entry)
   }
 }
@@ -306,5 +309,7 @@ export async function bindConversation(
   runtime.currentConversationId = convId
   touch(entry)
   if (opts?.markRead) touchLastRead(entry)
+  // The conversation is now the visible/bound one: any leftover notification for it is stale
+  cancelConversationNotification(convId)
   return entry
 }

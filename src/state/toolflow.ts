@@ -12,6 +12,7 @@
  */
 import { proxy } from "valtio"
 import { settings } from "./settings"
+import { notifyHumanWait } from "./notifications"
 import type { ToolCallKind } from "../core/chats"
 
 export type WriteToolName = "write_file" | "edit_file" | "download_file"
@@ -64,6 +65,8 @@ function requestConfirmation(req: Omit<PendingWriteConfirmation, "id" | "created
     }
     toolflow.pending.push(item)
     toolflow.resolvers[item.id] = resolve
+    // Background-only "Needs attention" notification (no-op when foreground or notifications are off)
+    notifyHumanWait(item.projectId, item.convId)
   })
 }
 

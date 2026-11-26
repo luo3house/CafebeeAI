@@ -1,6 +1,8 @@
 package io.github.luo3house.cafebeeai
 
+import android.content.Intent
 import android.os.Bundle
+import com.cafebeeai.appnotify.AppNotifyModule
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -17,6 +19,16 @@ class MainActivity : ReactActivity() {
    */
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(null)
+    // Notification tap cold start: the intent extras arrive before the JS bridge exists, so the module
+    // stores them and getInitialTap() hands them to the first ChatScreen mount.
+    AppNotifyModule.captureTap(intent)
+  }
+
+  /** Warm notification tap (the app is alive): singleTask delivers the launch intent here. */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    AppNotifyModule.captureTap(intent)
   }
 
   /**

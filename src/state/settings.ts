@@ -22,11 +22,13 @@ export const settings = proxy<{
   reasoningMode: ReasoningMode
   autoApproveWrites: boolean
   fontScale: number
+  completionNotifications: boolean
 }>({
   themeMode: "newsprint",
   reasoningMode: "min",
   autoApproveWrites: false,
   fontScale: 1,
+  completionNotifications: false,
 })
 
 /** Hydrated flag: setters never write the disk file before the first load finished (a write racing hydration could clobber it). */
@@ -39,6 +41,7 @@ export function appSettingsSnapshot(): AppSettingsSpec {
     reasoning_mode: settings.reasoningMode,
     font_scale: settings.fontScale,
     auto_approve_writes: settings.autoApproveWrites,
+    completion_notifications: settings.completionNotifications,
   }
 }
 
@@ -59,6 +62,7 @@ export async function hydrateAppSettings(): Promise<void> {
     if (spec.reasoning_mode !== undefined) settings.reasoningMode = spec.reasoning_mode
     if (spec.font_scale !== undefined) settings.fontScale = spec.font_scale
     if (spec.auto_approve_writes !== undefined) settings.autoApproveWrites = spec.auto_approve_writes
+    if (spec.completion_notifications !== undefined) settings.completionNotifications = spec.completion_notifications
   }
   hydrated = true
 }
@@ -66,7 +70,9 @@ export async function hydrateAppSettings(): Promise<void> {
 /**
  * Transfer apply (rule 38 `v1/app_settings`): assigns only the keys the document carries (partial tolerance,
  * same philosophy as config.yaml rule 8). Every applied setter writes through to disk. Returns silently;
- * schema gating already happened in the transfer module.
+ * schema gating already happened in the transfer module. `completion_notifications` is NEVER applied here:
+ * enabling it requires the interactive opt-in (confirm dialog + POST_NOTIFICATIONS ask, settings.screen),
+ * so a backup value (either state) is ignored and the local toggle keeps its own state.
  */
 export function applyImportedAppSettings(spec: AppSettingsSpec): void {
   if (spec.theme_mode !== undefined) setThemeMode(spec.theme_mode)
@@ -92,5 +98,10 @@ export function setAutoApproveWrites(enabled: boolean) {
 
 export function setFontScale(scale: number) {
   settings.fontScale = scale
+  persistSettings()
+}
+
+export function setCompletionNotifications(enabled: boolean) {
+  settings.completionNotifications = enabled
   persistSettings()
 }

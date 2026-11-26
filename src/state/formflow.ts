@@ -5,6 +5,7 @@
  */
 import { proxy } from "valtio"
 import Config from "react-native-config"
+import { notifyHumanWait } from "./notifications"
 
 /** Window-property prefix of the injected form bridge (dotenv `TOOL_CALL_FORM_BRIDGE_PREFIX`, Rule 32); the literal is the no-config fallback */
 export const FORM_BRIDGE_PREFIX = Config.TOOL_CALL_FORM_BRIDGE_PREFIX || "__cafebeeai"
@@ -65,6 +66,8 @@ export function requestForm(req: Omit<PendingForm, "createdAt">): Promise<FormTo
     formflow.pending.push(item)
     formflow.resolvers[item.toolCallId] = resolve
     formflow.sizes[item.toolCallId] = item.sizeBytes
+    // Background-only "Needs attention" notification (no-op when foreground or notifications are off)
+    notifyHumanWait(item.projectId, item.convId)
   })
 }
 

@@ -2,21 +2,24 @@
  * Settings page: Provider management / default reasoning display mode / tool approval / theme / projects / about.
  */
 import React, { useState } from "react"
-import { ScrollView, StyleSheet, View } from "react-native"
+import { Platform, PermissionsAndroid, ScrollView, StyleSheet, View } from "react-native"
 import { List, Divider, RadioButton, Switch } from "react-native-paper"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useSnapshot } from "valtio"
-import { settings, setThemeMode, setReasoningMode, setAutoApproveWrites, setFontScale, FONT_SCALE_PRESETS, type ThemeMode } from "../../../state/settings"
+import { settings, setThemeMode, setReasoningMode, setAutoApproveWrites, setFontScale, setCompletionNotifications, FONT_SCALE_PRESETS, type ThemeMode } from "../../../state/settings"
 
 import { ConfirmDialog } from "../../components/confirm-dialog"
 import { useYamlTransfer } from "../../components/yaml-transfer"
 import { ALL_KINDS } from "../../../core/transfer"
+import { showNotice } from "../../../state/notice"
+import { cancelAllNotifications, notificationsAllowed } from "../../../state/notifications"
 import Config from "react-native-config"
 
 export function SettingsScreen({ navigation }: { navigation: any }) {
   const snap = useSnapshot(settings)
   const insets = useSafeAreaInsets()
   const [confirmAuto, setConfirmAuto] = useState(false)
+  const [confirmNotifications, setConfirmNotifications] = useState(false)
 
   // Full-app transfer (rule 38): the one surface that imports/exports ALL five kinds in one stream.
   const backup = useYamlTransfer({
@@ -26,7 +29,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
     noun: "app data",
     withSecrets: true,
     exportDescription:
-      "Writes one backup stream: v1/provider documents, v1/git_credential documents, v1/system_prompt documents, v1/skill documents, then the single v1/app_settings document (theme, reasoning mode, font size, auto-approve). Secret values are written as \"-- DEDUCTED --\" placeholders unless you include them.",
+      "Writes one backup stream: v1/provider documents, v1/git_credential documents, v1/system_prompt documents, v1/skill documents, then the single v1/app_settings document (theme, reasoning mode, font size, auto-approve, completion notifications). Secret values are written as \"-- DEDUCTED --\" placeholders unless you include them.",
     importDescription:
       "Apply a full or partial v1/* backup: every document whose kind this app knows is routed to its registry (the kind pages can also import single-kind streams on their own). Ids are preserved whenever they are free.",
   })
@@ -34,6 +37,42 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
   const toggleAutoApprove = (next: boolean) => {
     if (next) setConfirmAuto(true)
     else setAutoApproveWrites(false)
+  }
+
+  /** Opt-in flow (rule: switch default off): explain → Android runtime permission → enable. Denial bounces the switch back off. */
+  const enableNotifications = async () => {
+    setConfirmNotifications(false)
+    try {
+      if (Platform.OS === "android" && Number(Platform.Version) >= 33) {
+        const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS)
+        if (result !== PermissionsAndroid.RESULTS.GRANTED) {
+          showNotice(
+            "Notification permission was denied. You can retry the switch, or allow notifications in system settings.",
+            { title: "Permission denied" }
+          )
+          return
+        }
+      }
+      if (!(await notificationsAllowed())) {
+        showNotice(
+          "Notification permission was denied. You can retry the switch, or allow notifications in system settings.",
+          { title: "Permission denied" }
+        )
+        return
+      }
+      setCompletionNotifications(true)
+    } catch (err: any) {
+      showNotice(String(err?.message ?? err), { title: "Notifications unavailable" })
+    }
+  }
+
+  const toggleNotifications = (next: boolean) => {
+    if (next) {
+      setConfirmNotifications(true)
+      return
+    }
+    setCompletionNotifications(false)
+    cancelAllNotifications()
   }
 
   const fontPresets = [
@@ -164,6 +203,38 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
             setConfirmAuto(false)
           }}
           onCancel={() => setConfirmAuto(false)}
+        />
+      </List.Section>
+
+      <List.Section>
+        <List.Subheader>Background & notifications</List.Subheader>
+        <List.Item
+          style={styles.listItem}
+          title="Completion notifications"
+          description="Notify when replies finish in the background"
+          left={(p) => <List.Icon {...p} icon="bell-outline" />}
+          onPress={() => toggleNotifications(!snap.completionNotifications)}
+          right={() => (
+            <View style={styles.switchWrap}>
+              <Switch value={snap.completionNotifications} onValueChange={toggleNotifications} />
+            </View>
+          )}
+        />
+        <Divider />
+        <List.Item
+          style={styles.listItem}
+          title="Battery optimization"
+          description="Keep background replies alive"
+          left={(p) => <List.Icon {...p} icon="battery-heart-variant" />}
+          onPress={() => navigation.navigate("BatteryOptimization")}
+        />
+        <ConfirmDialog
+          visible={confirmNotifications}
+          title="Enable notifications?"
+          body="You'll get a notification when a reply finishes or needs your attention while CafebeeAI is in the background. Android will ask for permission next."
+          confirmLabel="Continue"
+          onConfirm={() => void enableNotifications()}
+          onCancel={() => setConfirmNotifications(false)}
         />
       </List.Section>
 

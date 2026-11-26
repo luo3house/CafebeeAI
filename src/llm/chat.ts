@@ -43,6 +43,7 @@ import {
 import { openModelPicker } from "../state/modelpicker"
 import { cancelFormsFor, hasPendingFormFor } from "../state/formflow"
 import { cancelWriteConfirmationsFor, hasPendingWriteFor } from "../state/toolflow"
+import { notifyTurnFinished } from "../state/notifications"
 
 /** Max model-call steps within one answer (tool-loop cap); the list→search→read→edit tool chain takes many steps, so leave generous headroom */
 const MAX_STEPS = 15
@@ -648,6 +649,10 @@ export async function runAssistantTurn(
     // If this conversation is still the bound one at turn wrap-up → mark read (the user is present); unbound keeps the previous value so the failure badge lights up naturally
     if (isBound(entry)) {
       touchLastRead(entry)
+    }
+    // Background completion notification (done/failed only; user stops never notify). No-op while foreground/off.
+    if (finalKind === "done" || finalKind === "error") {
+      notifyTurnFinished(entry.projectId, entry.convId, finalKind)
     }
   }
   if (myTurn === handle.seq) {
