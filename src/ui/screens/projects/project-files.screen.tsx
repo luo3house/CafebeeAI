@@ -4,7 +4,7 @@
  * oversized files get a centered notice there - "Open with..." menu/button routes to openFileExternally from that page).
  * New folder, import, and export zip are consolidated into icon buttons on the right of the page header.
  */
-import React, { useCallback, useEffect, useLayoutEffect, useState } from "react"
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native"
 import { Divider, Icon, IconButton, Menu, TextInput, useTheme } from "react-native-paper"
 import { useFocusEffect } from "@react-navigation/native"
@@ -33,11 +33,13 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack"
 
 type Props = NativeStackScreenProps<RootStackParamList, "ProjectFiles">
 
-export function ProjectFilesScreen({ navigation }: Props) {
+export function ProjectFilesScreen({ navigation, route }: Props) {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
   const snap = useSnapshot(runtime)
-  const projectId = snap.currentProjectId
+  // The page can browse any project (entry from the Projects list passes an explicit id);
+  // the chat "+" panel opens the currently active project.
+  const projectId = route.params?.projectId ?? snap.currentProjectId
   const [relDir, setRelDir] = useState("")
   const [files, setFiles] = useState<ProjectDirEntry[]>([])
   const [hasGit, setHasGit] = useState(false)
@@ -60,12 +62,21 @@ export function ProjectFilesScreen({ navigation }: Props) {
   const dirInputRef = useModalInputFocus(mkdirDlg)
 
   const dirAbs = projectId ? projectDir(projectId, relDir) : ""
+  // In-flight listings must not overwrite a newer project/directory selection
+  // (switching projects or walking directories quickly otherwise shows the previous listing).
+  const refreshSeq = useRef(0)
 
   const refresh = useCallback(async () => {
     if (!projectId) return
-    setFiles(await listProjectFiles(projectId, relDir))
+    const seq = ++refreshSeq.current
+    const list = await listProjectFiles(projectId, relDir)
+    if (seq !== refreshSeq.current) return
+    setFiles(list)
     // .git is a reserved segment the list never shows, so a repo can look "empty" - probe it directly
-    if (!relDir) setHasGit(await exists(joinPath(dirAbs, ".git")))
+    if (!relDir) {
+      const git = await exists(joinPath(dirAbs, ".git"))
+      if (seq === refreshSeq.current) setHasGit(git)
+    }
   }, [projectId, relDir, dirAbs])
 
   const onRefresh = useCallback(async () => {
@@ -87,6 +98,8 @@ export function ProjectFilesScreen({ navigation }: Props) {
   useEffect(() => {
     setRelDir("")
     setMenuFor(null)
+    setFiles([])
+    setHasGit(false)
   }, [projectId])
 
   const enterDir = (name: string) => setRelDir(relDir ? `${relDir}/${name}` : name)

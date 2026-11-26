@@ -163,7 +163,7 @@ export function ProjectManageScreen({ navigation }: { navigation: any }) {
               left={(p) => <List.Icon {...p} icon="folder-outline" />}
               right={() => (
                 <View style={styles.cardActions}>
-                  <IconButton icon="database" size={20} onPress={() => navigation.navigate("ProjectFiles")} />
+                  <IconButton icon="database" size={20} onPress={() => navigation.navigate("ProjectFiles", { projectId: item.id })} />
                   {item.id !== DEFAULT_PROJECT_ID ? (
                     <>
                       <IconButton

@@ -95,8 +95,8 @@ if (releaseBuildRequested && !keystorePropertiesFile.exists()) {
 
 // Rule 32: resolve dotenv identity once, hand plain values to the productFlavors DSL
 // (avoid calling versionCode/versionName with an inline expression per flavor).
-def dotenvVersionCode = (project.env.get("APP_VERSION_CODE") ?: "1").toInteger()
-def dotenvVersionName = project.env.get("APP_VERSION") ?: "0.1.0"
+def dotenvVersionCode = (project.env.get("APP_VERSION_CODE") ?: "4").toInteger()
+def dotenvVersionName = project.env.get("APP_VERSION") ?: "1.0.3"
 // Rule 32: launcher label = APP_NAME + per-flavor APP_LABEL_SUFFIX (dev "_dev", github empty).
 // Appends only to the manifest app_name resValue; in-app brand/prompt/git author keep APP_NAME.
 def dotenvAppLabel = (project.env.get("APP_NAME") ?: "CafebeeAI") + (project.env.get("APP_LABEL_SUFFIX") ?: "")

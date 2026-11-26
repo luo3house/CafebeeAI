@@ -7,7 +7,7 @@ import { List, Divider, useTheme } from "react-native-paper"
 import { fs } from "../../../app/app.ui.theme"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import Config from "react-native-config"
-import { APP_NAME, APP_VERSION } from "../../../app/app.constants"
+import { APP_NAME } from "../../../app/app.constants"
 import appIcon from "../../assets/app-icon.png"
 
 export function AboutScreen() {
@@ -18,13 +18,13 @@ export function AboutScreen() {
       <View style={styles.hero}>
         <Image source={appIcon} style={styles.appIcon} resizeMode="contain" />
         <Text style={[styles.appName, { color: theme.colors.onSurface, fontSize: fs(theme, 26) }]}>{Config.APP_NAME || APP_NAME}</Text>
-        <Text style={[styles.version, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 14) }]}>v{APP_VERSION}</Text>
+        <Text style={[styles.version, { color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 14) }]}>{Config.APP_VERSION ? `v${Config.APP_VERSION}` : "-"}</Text>
       </View>
       <List.Section>
         <List.Subheader>Information</List.Subheader>
         <List.Item
           title="Version"
-          right={() => <Text style={{ alignSelf: "center", color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 14) }}>{Config.APP_VERSION || APP_VERSION}</Text>}
+          right={() => <Text style={{ alignSelf: "center", color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 14) }}>{Config.APP_VERSION || "-"}</Text>}
         />
         <Divider />
         <List.Item

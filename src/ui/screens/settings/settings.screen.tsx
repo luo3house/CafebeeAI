@@ -7,7 +7,7 @@ import { List, Divider, RadioButton, Switch } from "react-native-paper"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useSnapshot } from "valtio"
 import { settings, setThemeMode, setReasoningMode, setAutoApproveWrites, setFontScale, FONT_SCALE_PRESETS, type ThemeMode } from "../../../state/settings"
-import { APP_BUILD_LABEL } from "../../../app/app.constants"
+
 import { ConfirmDialog } from "../../components/confirm-dialog"
 import { useYamlTransfer } from "../../components/yaml-transfer"
 import { ALL_KINDS } from "../../../core/transfer"
@@ -104,7 +104,7 @@ export function SettingsScreen({ navigation }: { navigation: any }) {
         <List.Item
           style={styles.listItem}
           title="About"
-          description={APP_BUILD_LABEL}
+          description={Config.APP_VERSION ? `v${Config.APP_VERSION}` : "-"}
           left={(p) => <List.Icon {...p} icon="information-outline" />}
           onPress={() => navigation.navigate("About")}
         />

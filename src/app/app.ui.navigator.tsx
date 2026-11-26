@@ -53,7 +53,7 @@ export type AppDrawerParamList = {
 export type RootStackParamList = {
   Home: NavigatorScreenParams<AppDrawerParamList> | undefined
   ProjectManage: undefined
-  ProjectFiles: undefined
+  ProjectFiles: { projectId?: string } | undefined
   StaticFs: { projectId: string }
   FilePreview: { name: string; path: string }
   TextEditor: TextEditorParams
