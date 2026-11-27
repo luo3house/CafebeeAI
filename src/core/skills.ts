@@ -1,22 +1,21 @@
 /**
  * Global Skills registry + slash matching (rule 36): plain-text snippets shared by every Project, stored in
- * `<appRoot>/skills.json`. Typing `/name` in the chat draft and terminating the token (any non-name character -
- * space, punctuation, CJK - or the message send) expands the token in place with the skill's text; expansion is
- * automatic and the only "escape" is backspacing the inserted text. Skills are NOT offered to the model via a
- * tool_call (out of scope for this feature).
+ * `<appRoot>/skills.json`. The chat draft keeps the raw `/name` token untouched (there is NO per-edit expansion
+ * channel); at send time `llm/chat.ts` sweeps the outgoing text once and splices the matching skill's text into the
+ * user message record. Skills are NOT offered to the model via a tool_call (out of scope for this feature).
  *
  * Token grammar (R3-Q1): skill names are `[A-Za-z0-9_-]+` (≤ 24, unique case-insensitively); a `/` only starts a
  * token at the string start or after a non-name character (so `and/or`, `https://host/api` never match); the name
- * runs to the first non-name character, which is the terminator.
+ * runs greedily to the first non-name character.
  *
- * Expansion mechanics (consensus R2-Q2=乙 + R1-Q5=A1):
- * - per keystroke/paste only: expand COMPLETE tokens whose terminator character index falls inside the changed
- *   region [commonPrefix, length-commonSuffix) of THIS edit - text before the region was already settled by its own
- *   edit event, and a body inserted by a previous expansion sits fully before the region, so bodies are never
- *   rescanned (single pass, no recursion of expansion-inserted content);
- * - send time: one final sweep over the whole text - any complete token expands and a trailing unterminated token
- *   (e.g. a token left restored by ui-state that nobody typed further) treats the string end as terminator.
- * The sweep operates on the message content; the visible draft stays intact until the normal send-clear.
+ * Expansion trigger (2026-11-26 rework): a token expands ONLY when its name run is followed by a half-width space
+ * U+0020 - that space is the submit marker and is preserved verbatim (`/code 展开` -> `body 展开`). A token followed
+ * by punctuation, CJK, a newline, or the end of the message is sent LITERALLY (`/code,`, `用/code展开`, a message
+ * ending in `/code` all stay verbatim) - this literal-by-default behavior is also the escape; there is no backslash
+ * syntax (`\` is an ordinary character). The only impossible literal is `/name ` (matched name + half-width space):
+ * it always expands. Unmatched names go to the message verbatim, silently. Bodies are spliced in a single
+ * left-to-right pass and never rescanned, so a `/token` inside a skill body never cascade-expands. Expansion happens
+ * exactly once at send: drafts are never rewritten (the candidate-pill completion writes the token, never the body).
  */
 import { joinPath, readText, ensureDir, exists, atomicWriteText, appRootPath } from "./fs"
 import { uuid32 } from "./uuid"
@@ -172,24 +171,24 @@ type ContentLookup = (lowerName: string) => string | undefined
 interface TokenHit {
   /** index of the '/' */
   start: number
-  /** index just past the name run = index of the terminator char (or text length when the run ends the string) */
+  /** index just past the name run = index of the U+0020 submit-marker space (when the token fires) */
   end: number
   lowerName: string
 }
 
-/** Left-to-right single pass over `src`: collected syntactically complete/running tokens; emitted output slices in
- *  between are copied verbatim, so replacement bodies are never part of the scan (no recursion within a pass). */
-function scanTokens(src: string, collect: (hit: TokenHit, isEnd: boolean) => string | null): string {
+/** Left-to-right single pass over `src`: a token fires only when its name run is followed by the U+0020 submit-marker
+ *  space; emitted output slices in between are copied verbatim, so replacement bodies are never part of the scan
+ *  (no recursion within a pass). */
+function scanTokens(src: string, collect: (hit: TokenHit) => string | null): string {
   let out = ""
   let i = 0
   while (i < src.length) {
     if (src[i] === "/" && (i === 0 || !isNameChar(src[i - 1]))) {
       let j = i + 1
       while (j < src.length && isNameChar(src[j])) j++
-      if (j > i + 1) {
-        const isEnd = j === src.length
+      if (j > i + 1 && src[j] === " ") {
         const hit: TokenHit = { start: i, end: j, lowerName: src.slice(i + 1, j).toLowerCase() }
-        const body = collect(hit, isEnd)
+        const body = collect(hit)
         if (body !== null) {
           out += body
           i = j
@@ -203,31 +202,7 @@ function scanTokens(src: string, collect: (hit: TokenHit, isEnd: boolean) => str
   return out
 }
 
-function diffRegion(prev: string, next: string): { from: number; to: number } {
-  let p = 0
-  const min = Math.min(prev.length, next.length)
-  while (p < min && prev[p] === next[p]) p++
-  let sc = 0
-  while (sc < next.length - p && sc < prev.length - p && prev[prev.length - 1 - sc] === next[next.length - 1 - sc]) sc++
-  return { from: p, to: next.length - sc }
-}
-
-/**
- * Per-edit expansion: only terminate-inside-the-changed-region complete tokens fire (terminator at index j means the
- * non-name character that closed the run; a token ending the string has no terminator and waits for the next keystroke
- * or the send sweep). `prev` is the draft BEFORE this change (entry.draft raw value).
- */
-export function expandSkillsOnEdit(prev: string, next: string, lookup: ContentLookup): string {
-  if (prev === next) return next
-  const { from, to } = diffRegion(prev, next)
-  if (from >= to) return next
-  return scanTokens(next, (hit, isEnd) => {
-    if (isEnd || hit.end < from || hit.end >= to) return null
-    return lookup(hit.lowerName) ?? null
-  })
-}
-
-/** Send sweep: every complete token expands and a trailing token treats the string end as its terminator. */
+/** Send sweep: a token expands only when its name run is followed by the U+0020 submit-marker space (kept verbatim). */
 export function expandSkillsAtSend(text: string, lookup: ContentLookup): string {
   return scanTokens(text, (hit) => lookup(hit.lowerName) ?? null)
 }
@@ -236,4 +211,15 @@ export function expandSkillsAtSend(text: string, lookup: ContentLookup): string 
 export function trailingSlashInput(text: string): string | null {
   const m = TRAILING_SLASH_RE.exec(text)
   return m ? m[1] : null
+}
+
+/**
+ * Candidate-pill completion: replace the trailing in-progress token with the canonical `/<name> ` (the trailing
+ * space is the submit-marker - sending the draft then expands it). Returns null when no token is being typed.
+ */
+export function completeTrailingSlash(text: string, name: string): string | null {
+  const m = TRAILING_SLASH_RE.exec(text)
+  if (!m) return null
+  const slash = m.index + m[0].lastIndexOf("/")
+  return `${text.slice(0, slash)}/${name} `
 }

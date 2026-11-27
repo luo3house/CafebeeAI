@@ -2,8 +2,8 @@
  * Global Skills CRUD page (rule 36): plain-text snippets typed as `/name` in the chat draft; stored in
  * `<appRoot>/skills.json`, shared by every Project, reachable from the Settings page and the "+" input panel.
  * Flows mirror the System Prompts page (Rule 27/25/30): create = header [+] → name dialog → TextEditor →
- * the entry is written only on save; row menu = Rename / Edit / Delete (ConfirmDialog; drafts/messages already
- * holding expanded text are untouched - the token just stops matching).
+ * the entry is written only on save; row menu = Rename / Edit / Delete (ConfirmDialog; messages already
+ * holding expanded text are untouched - a token still sitting in a draft simply stops matching at send).
  * Name = one slash-token identifier: non-empty, `[A-Za-z0-9_-]+`, ≤ 24, unique case-insensitively; content non-blank.
  */
 import React, { useCallback, useLayoutEffect, useState } from "react"
