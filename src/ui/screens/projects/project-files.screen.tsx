@@ -3,8 +3,10 @@
  * Tapping a file row opens the FilePreview screen (in-app Markdown/TXT preview for supported types; unsupported or
  * oversized files get a centered notice there - "Open with..." menu/button routes to openFileExternally from that page).
  * New folder, import, and export zip are consolidated into icon buttons on the right of the page header.
+ * The list's first element is a synthetic row - `.` at the project root (tap = no-op) or `..` below it (go up) -
+ * and git projects show a working-tree diff badge (U/M/A/D/C, display-only) left of each row's three-dot menu.
  */
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native"
 import { Divider, Icon, IconButton, Menu, TextInput, useTheme } from "react-native-paper"
 import { useFocusEffect } from "@react-navigation/native"
@@ -13,7 +15,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { pick, keepLocalCopy } from "@react-native-documents/picker"
 import { useSnapshot } from "valtio"
 import { runtime } from "../../../state/runtime"
-import { listProjectFiles, projectDir, createProjectDir, type ProjectDirEntry } from "../../../core/projects"
+import { listProjectFiles, projectDir, projectRoot, createProjectDir, type ProjectDirEntry } from "../../../core/projects"
+import { projectGitStatus, type GitStatus } from "../../../core/git"
 import { RESERVED_SEGMENTS } from "../../../core/paths"
 import { unlinkRecursive, exists, joinPath, move } from "../../../core/fs"
 import { exportProjectZip, importFilesIntoProject } from "../../../core/import-export"
@@ -33,6 +36,62 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack"
 
 type Props = NativeStackScreenProps<RootStackParamList, "ProjectFiles">
 
+/** Diff badge letters (VS Code vocabulary); a path landing in several JGit sets keeps the worst one. */
+type DiffBadge = "C" | "M" | "A" | "D" | "U"
+const BADGE_RANK: Record<DiffBadge, number> = { C: 4, M: 3, A: 2, D: 1, U: 0 }
+
+type DiffIndex = {
+  /** Repo-relative file path -> badge */
+  files: Map<string, DiffBadge>
+  /** Untracked entries: JGit reports a whole untracked directory as ONE entry, descendants inherit U */
+  untracked: string[]
+  /** Every ancestor directory of a changed path - directories only answer "is anything in here dirty" */
+  dirtyDirs: Set<string>
+}
+
+/** Repo-wide status -> lookup tables (O(1) per visible row instead of per-row set scans). */
+function buildDiffIndex(st: GitStatus): DiffIndex {
+  const files = new Map<string, DiffBadge>()
+  const put = (paths: string[], badge: DiffBadge) => {
+    for (const p of paths) {
+      const prev = files.get(p)
+      if (!prev || BADGE_RANK[badge] > BADGE_RANK[prev]) files.set(p, badge)
+    }
+  }
+  put(st.unmerged, "C")
+  put(st.modified, "M")
+  // `staged` is newer than the rest of the payload: tolerate an APK whose native module predates it
+  put(st.staged ?? [], "M")
+  put(st.added, "A")
+  put([...st.removed, ...st.missing], "D")
+
+  const dirtyDirs = new Set<string>()
+  const markAncestors = (p: string) => {
+    const parts = p.split("/")
+    for (let i = 1; i < parts.length; i++) dirtyDirs.add(parts.slice(0, i).join("/"))
+  }
+  for (const p of files.keys()) markAncestors(p)
+  for (const p of st.untracked) markAncestors(p)
+  return { files, untracked: st.untracked, dirtyDirs }
+}
+
+const isUnderUntracked = (index: DiffIndex, rel: string): boolean =>
+  index.untracked.some((u) => rel === u || rel.startsWith(`${u}/`))
+
+/** Files answer with their worst state (U when their parent untracked directory was never staged). */
+function fileBadge(index: DiffIndex, rel: string): DiffBadge | null {
+  const exact = index.files.get(rel)
+  if (exact) return exact
+  return isUnderUntracked(index, rel) ? "U" : null
+}
+
+/** Directories are fixed M whenever anything below them changed (untracked included; conflicts stay file-level). */
+function dirDirty(index: DiffIndex, rel: string): boolean {
+  return index.dirtyDirs.has(rel) || isUnderUntracked(index, rel)
+}
+
+const NOOP = () => {}
+
 export function ProjectFilesScreen({ navigation, route }: Props) {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
@@ -43,6 +102,11 @@ export function ProjectFilesScreen({ navigation, route }: Props) {
   const [relDir, setRelDir] = useState("")
   const [files, setFiles] = useState<ProjectDirEntry[]>([])
   const [hasGit, setHasGit] = useState(false)
+  // First listing completed (list + .git probe): gates the EmptyProjectWizard so an in-flight
+  // listing never flashes the "Import files" wizard on a real project (rule 19).
+  const [loaded, setLoaded] = useState(false)
+  // Repo-wide working tree status behind the diff badges (null = no badges; git projects only)
+  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [deleting, setDeleting] = useState<ProjectDirEntry | null>(null)
   const [renaming, setRenaming] = useState<ProjectDirEntry | null>(null)
@@ -66,6 +130,48 @@ export function ProjectFilesScreen({ navigation, route }: Props) {
   // (switching projects or walking directories quickly otherwise shows the previous listing).
   const refreshSeq = useRef(0)
 
+  // Git diff badges: computed from the repo-wide working tree status. The first run is immediate,
+  // later refreshes coalesce into one run (800ms trailing debounce, 2s maxWait). A failing status
+  // silently clears the badges - the file list must never break because of a broken repo.
+  const statusSeq = useRef(0)
+  const statusDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const statusMaxWait = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const statusPrimed = useRef(false)
+
+  const clearStatusTimers = useCallback(() => {
+    if (statusDebounce.current) {
+      clearTimeout(statusDebounce.current)
+      statusDebounce.current = null
+    }
+    if (statusMaxWait.current) {
+      clearTimeout(statusMaxWait.current)
+      statusMaxWait.current = null
+    }
+  }, [])
+
+  const runStatusNow = useCallback(async () => {
+    clearStatusTimers()
+    if (!projectId) return
+    const seq = ++statusSeq.current
+    try {
+      const st = await projectGitStatus(projectId)
+      if (seq === statusSeq.current) setGitStatus(st)
+    } catch {
+      if (seq === statusSeq.current) setGitStatus(null)
+    }
+  }, [projectId, clearStatusTimers])
+
+  const scheduleStatus = useCallback(() => {
+    if (!statusPrimed.current) {
+      statusPrimed.current = true
+      void runStatusNow()
+      return
+    }
+    if (statusDebounce.current) clearTimeout(statusDebounce.current)
+    statusDebounce.current = setTimeout(() => void runStatusNow(), 800)
+    if (!statusMaxWait.current) statusMaxWait.current = setTimeout(() => void runStatusNow(), 2000)
+  }, [runStatusNow])
+
   const refresh = useCallback(async () => {
     if (!projectId) return
     const seq = ++refreshSeq.current
@@ -73,11 +179,14 @@ export function ProjectFilesScreen({ navigation, route }: Props) {
     if (seq !== refreshSeq.current) return
     setFiles(list)
     // .git is a reserved segment the list never shows, so a repo can look "empty" - probe it directly
-    if (!relDir) {
-      const git = await exists(joinPath(dirAbs, ".git"))
-      if (seq === refreshSeq.current) setHasGit(git)
-    }
-  }, [projectId, relDir, dirAbs])
+    // (at the project root, at every depth: the wizard and the diff badges both key off it)
+    const git = await exists(joinPath(projectRoot(projectId), ".git"))
+    if (seq !== refreshSeq.current) return
+    setHasGit(git)
+    if (git) scheduleStatus()
+    else setGitStatus(null)
+    setLoaded(true)
+  }, [projectId, relDir, scheduleStatus])
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -95,12 +204,33 @@ export function ProjectFilesScreen({ navigation, route }: Props) {
     }, [refresh]),
   )
 
+  // Reset per-project view state. Guarded by a ref so the INITIAL mount does not invalidate the first
+  // status run (this effect runs after the focus effect that already kicked one off).
+  const lastProjectRef = useRef(projectId)
   useEffect(() => {
+    if (lastProjectRef.current === projectId) return
+    lastProjectRef.current = projectId
     setRelDir("")
     setMenuFor(null)
     setFiles([])
     setHasGit(false)
-  }, [projectId])
+    setGitStatus(null)
+    setLoaded(false)
+    statusSeq.current++ // invalidate in-flight status runs for the previous project
+    statusPrimed.current = false
+    clearStatusTimers()
+  }, [projectId, clearStatusTimers])
+
+  // A directory change invalidates the stale listing (and its loaded flag): navigating up from an empty
+  // subfolder keeps `files = []` until the new listing resolves, which would otherwise flash the
+  // EmptyProjectWizard for the previous mounted combination.
+  useEffect(() => {
+    setLoaded(false)
+  }, [relDir])
+
+  useEffect(() => () => clearStatusTimers(), [clearStatusTimers])
+
+  const diffIndex = useMemo(() => (gitStatus ? buildDiffIndex(gitStatus) : null), [gitStatus])
 
   const enterDir = (name: string) => setRelDir(relDir ? `${relDir}/${name}` : name)
   const upDir = () => setRelDir(relDir.includes("/") ? relDir.slice(0, relDir.lastIndexOf("/")) : "")
@@ -283,8 +413,33 @@ export function ProjectFilesScreen({ navigation, route }: Props) {
             keyExtractor={(f) => f.path}
             contentContainerStyle={{ padding: 10, paddingBottom: 12 + insets.bottom }}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            // Synthetic first element: `.` at the project root (tap does nothing), `..` below it (go up one
+            // level). Header-based so an empty subfolder still gets `..` while an empty root keeps the wizard.
+            ListHeaderComponent={
+              relDir || files.length > 0 ? (
+                <AppPressable onPress={relDir ? upDir : NOOP}>
+                  <Divider />
+                  <View style={styles.rowContent}>
+                    <View style={styles.fileIconBox}>
+                      <Icon source="arrow-left" size={18} color={theme.colors.onSurfaceVariant} />
+                    </View>
+                    <Text style={[styles.monoName, { flex: 1, fontSize: fs(theme, 14), color: theme.colors.onSurface }]} numberOfLines={1}>
+                      {relDir ? ".." : "."}
+                    </Text>
+                  </View>
+                </AppPressable>
+              ) : null
+            }
             renderItem={({ item }) => {
               const open = () => openItem(item)
+              const rel = relDir ? `${relDir}/${item.name}` : item.name
+              const badge: DiffBadge | null = !diffIndex
+                ? null
+                : item.isDirectory
+                  ? dirDirty(diffIndex, rel)
+                    ? "M"
+                    : null
+                  : fileBadge(diffIndex, rel)
               return (
                 <AppPressable onPress={open}>
                   {/* divider as the row's top border: flush with the element's top edge, pressed together with the row */}
@@ -296,6 +451,29 @@ export function ProjectFilesScreen({ navigation, route }: Props) {
                     <Text style={{ flex: 1, fontSize: fs(theme, 14), color: theme.colors.onSurface }} numberOfLines={1}>
                       {item.name}
                     </Text>
+                    {/* Diff badge: display-only (an inner responder swallows the tap; an empty slot is a plain View
+                        so taps fall through to the row). The slot is reserved on every row of a git project so the
+                        three-dot column stays aligned and badge refreshes never reflow the list; non-git projects
+                        keep the original layout untouched. */}
+                    {hasGit ? (
+                      badge ? (
+                        // hitSlop widens the target without stealing the neighbouring three-dot button's taps
+                        <AppPressable onPress={NOOP} hitSlop={{ top: 8, bottom: 8, left: 8, right: 0 }} hoverOpacity={1}>
+                          <View style={styles.badgeSlot}>
+                            <Text
+                              style={[
+                                styles.badgeText,
+                                { fontSize: fs(theme, 11), color: badge === "C" ? theme.colors.error : theme.colors.onSurfaceVariant },
+                              ]}
+                            >
+                              {badge}
+                            </Text>
+                          </View>
+                        </AppPressable>
+                      ) : (
+                        <View style={styles.badgeSlot} />
+                      )
+                    ) : null}
                     {/* the overflow anchored to the three-dot button (an inner responder wins over the row press) stays the only excluded area */}
                     <Menu
                       visible={menuFor === item.path}
@@ -326,17 +504,13 @@ export function ProjectFilesScreen({ navigation, route }: Props) {
               )
             }}
             ListEmptyComponent={
-              relDir ? (
-                <Text style={{ alignSelf: "center", marginTop: 24, color: theme.colors.onSurfaceVariant, fontSize: fs(theme, 14) }}>
-                  This folder is empty. Tap + in the top right to import files
-                </Text>
-              ) : (
+              relDir ? null : loaded ? (
                 <EmptyProjectWizard
                   hasGit={hasGit}
                   onImport={() => void doImport()}
                   onClone={() => navigation.navigate("GitClone", { projectId })}
                 />
-              )
+              ) : null
             }
           />
 
@@ -444,6 +618,11 @@ const styles = StyleSheet.create({
   // (below the divider) so the divider reads as the element's top border - the list container stays flush (padding: 10).
   rowContent: { flexDirection: "row", alignItems: "center", paddingVertical: 12 },
   fileIconBox: { padding: 6, alignItems: "center", justifyContent: "center" },
+  // Diff badge: a fixed slot on every row (nothing rendered without a letter) keeps the three-dot column aligned;
+  // the letter itself is monospace so U/M/A/D/C all occupy the same cell.
+  badgeSlot: { width: 18, alignItems: "center", justifyContent: "center" },
+  badgeText: { fontFamily: "monospace", fontWeight: "600", includeFontPadding: false },
+  monoName: { fontFamily: "monospace" },
   crumbSeg: { flexDirection: "row", alignItems: "center" },
   crumbText: { fontSize: 13 },
 })

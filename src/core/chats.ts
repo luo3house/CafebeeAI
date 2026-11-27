@@ -15,7 +15,7 @@ import { stringifyAsyncSafe } from "./async-json"
 export type MessagePartText = { type: "text"; text: string }
 export type MessagePartAttachment = { type: "attachment"; name: string; content: string; truncated?: boolean }
 export type MessagePartReasoning = { type: "reasoning"; text: string }
-export type ToolCallKind = "read_file" | "write_file" | "list_files" | "show_form" | "search_files" | "edit_file" | "download_file"
+export type ToolCallKind = "read_file" | "write_file" | "list_files" | "show_form" | "search_files" | "edit_file" | "download_file" | "run_javascript"
 export type MessagePartToolCall = {
   type: "tool_call"
   id: string

@@ -1,5 +1,5 @@
 /**
- * The fixed seven tools: read_file / list_files / search_files / write_file / edit_file / download_file / show_form.
+ * The fixed eight tools: read_file / list_files / search_files / write_file / edit_file / download_file / show_form / run_javascript.
  * Hand-written JSON Schema (replacing the AI SDK's tool()/zodSchema()) + executors;
  * scope locked to the Project directory, the git repository internals (`.git`) are off-limits (all other hidden files/dirs are allowed;
  * app state lives outside the Project in project-meta/, so nothing else needs reserving);
@@ -9,6 +9,9 @@
  * (no JS memory), redirects followed under the library's own cap, 2xx required, 50MB hard limit, 300s no-data stall watchdog
  * (the watchdog bites only the request - the human wait before it stays unbounded).
  * show_form suspends until the user submits the HTML form (formflow bridge), file sources use Project-relative paths.
+ * run_javascript evaluates model code as an async function body in a hidden one-shot sandboxed WebView (browser DOM env, NOT Node.js;
+ * network sealed, no native dialogs) - 32757B code cap, 10s wall clock from slot acquisition, 64KB result cap; execution rides the evalflow
+ * FIFO queue (max 3 mounted WebViews) + the hidden host in GlobalHosts, and its confirmation goes through toolflow like the write tools.
  * The execution context ToolExecContext carries (projectId, convId, toolCallId, signal): confirmation/form bridges register by conversation ownership,
  * so cancellations/badges never cross-talk between parallel WIP conversations; signal lets network-holding tools (download) end their native task on stop/preempt.
  * Tool names/descriptions/parameter docs and result fields returned to the model are always en-US (model-facing); UI copy such as confirmation cards was zh-CN and is now en-US everywhere.
@@ -22,10 +25,13 @@ import { stageDownloadTmp } from "../core/import-export"
 import {
   requestWriteConfirmation,
   requestDownloadConfirmation,
+  requestEvalConfirmation,
   setDownloadProgress,
   clearDownloadProgress,
 } from "../state/toolflow"
+import { requestEval } from "../state/evalflow"
 import { requestForm } from "../state/formflow"
+import { EVAL_LIMITS } from "./eval-doc"
 import { FORM_LIMITS, formatBytes, hasFileInputTag, utf8ByteLength } from "./form-doc"
 
 export const MAX_READ_BYTES = 64 * 1024
@@ -607,6 +613,51 @@ export function buildTools(projectId: string): ToolDef[] {
           hasFileInput: hasFileInputTag(html),
           sizeBytes,
         })
+      },
+    },
+
+    {
+      name: "run_javascript",
+      description:
+        "Evaluate JavaScript code in a sandboxed browser DOM environment and return the result. " +
+        "This is a DOM environment (window/document/timers/DOM APIs), NOT Node.js - no require, no process, no fs. " +
+        "Network access is blocked (fetch/XHR/WebSocket are unavailable). " +
+        "The code runs as an async function body: use `return` to produce the result (top-level `await` is allowed); " +
+        "the returned value is serialized to JSON (functions/DOM nodes become descriptive placeholders). " +
+        "Hard limits: 32757 bytes of code (UTF-8), 10 second timeout, 64KB result cap (truncated). " +
+        "Each call runs in a fresh, isolated environment - state does not persist between calls. " +
+        "The user is asked to confirm before execution.",
+      parameters: {
+        type: "object",
+        properties: {
+          code: {
+            type: "string",
+            description:
+              "JavaScript source to evaluate. It runs as an async function body (use return to produce the result; top-level await is allowed). Max 32757 bytes (UTF-8).",
+          },
+        },
+        required: ["code"],
+      },
+      execute: async (args, ctx) => {
+        const code = asString(args.code)
+        if (!code.trim()) return { ok: false, error: "Missing required argument: code" }
+        const sizeBytes = utf8ByteLength(code)
+        if (sizeBytes > EVAL_LIMITS.maxCodeBytes) {
+          return {
+            ok: false,
+            error: `code_too_large: code exceeds ${EVAL_LIMITS.maxCodeBytes} bytes (UTF-8); shorten the code and try again`,
+          }
+        }
+        // Approval runs the frozen code snapshot (rule 4): nothing is re-read or re-derived after Approve.
+        const approved = await requestEvalConfirmation({
+          tool: "run_javascript",
+          toolCallId: ctx.toolCallId,
+          projectId,
+          convId: ctx.convId,
+          code,
+        })
+        if (!approved) return { ok: false, rejected: true, error: "The user rejected this execution request" }
+        return requestEval(ctx.toolCallId, code, ctx.signal)
       },
     },
   ]

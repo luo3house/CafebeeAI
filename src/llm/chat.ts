@@ -690,9 +690,10 @@ export async function sendUserMessage(
     if (!(await abandonWaitingTurn(entry))) return
   }
 
-  // Skill send-time sweep (rule 36): every slash token that is still un-expanded gets written into the message
-  // content here (the visible draft is never rewritten - per-keystroke expansion lives in ChatScreen.onChangeDraft);
-  // this also catches tokens restored from ui-state that nobody typed further.
+  // Skill send-time sweep (rule 36, the ONLY expansion point): a slash token expands only when its name run is
+  // followed by a half-width space (the submit-marker); anything else - punctuation, CJK, newline, end of message -
+  // is sent literally. The expanded text is what lands in the message record (bubble/model/export); the draft itself
+  // is never rewritten and inserted bodies are never rescanned (no cascade).
   const finalText = expandSkillsAtSend(text, (lower) => kSkillStore().contentFor(lower))
 
   const msg: ChatMessage = {

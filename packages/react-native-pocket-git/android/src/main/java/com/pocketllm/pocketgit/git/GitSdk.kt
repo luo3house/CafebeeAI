@@ -99,8 +99,9 @@ object GitSdk {
         return synchronized(h.lock) {
             val st = h.git.status().call()
             val repo = h.git.repository
+            val staged = st.changed
             val union = st.modified.toSet() + st.added.toSet() + st.untracked.toSet() +
-                st.removed.toSet() + st.missing.toSet() + st.conflicting.toSet()
+                st.removed.toSet() + st.missing.toSet() + st.conflicting.toSet() + staged
             JSONObject()
                 .put("hasHead", repo.resolve("HEAD") != null)
                 .put("branch", repo.branch ?: "")
@@ -108,6 +109,7 @@ object GitSdk {
                 .put("changed", union.size)
                 .put("unmerged", JSONArray(st.conflicting))
                 .put("modified", JSONArray(st.modified))
+                .put("staged", JSONArray(staged))
                 .put("added", JSONArray(st.added))
                 .put("untracked", JSONArray(st.untracked))
                 .put("removed", JSONArray(st.removed))

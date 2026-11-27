@@ -27,6 +27,7 @@ export type GitStatus = {
   changed: number
   unmerged: string[]
   modified: string[]
+  staged: string[]
   added: string[]
   untracked: string[]
   removed: string[]

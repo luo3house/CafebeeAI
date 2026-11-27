@@ -53,7 +53,7 @@ import { dialogLiftStyle, useKeyboardLift } from "../../use-keyboard-lift"
 import { useModalInputFocus } from "../../use-modal-input-focus"
 import { kApp } from "../../../app/app"
 import { kSystemPromptStore, SYSTEM_PROMPT_ASK_ID } from "../../../core/system-prompts"
-import { kSkillStore, expandSkillsOnEdit } from "../../../core/skills"
+import { completeTrailingSlash } from "../../../core/skills"
 import { consumeInitialNotificationTap, onNotificationTap, syncVisibleConversation } from "../../../state/notifications"
 import { openNotificationTarget } from "../../../state/notification-nav"
 import { SystemPromptPicker } from "./system-prompt-picker"
@@ -254,8 +254,17 @@ export function ChatScreen({ navigation }: NavProps) {
   const onChangeDraft = useCallback((t: string) => {
     const entry = getEntry(runtime.currentProjectId, runtime.currentConversationId)
     if (!entry) return
-    // rule 36: expand slash-skill tokens terminated by this edit only (the send-time sweep in llm/chat.ts covers the rest)
-    setDraft(entry, expandSkillsOnEdit(entry.draft, t, (lower) => kSkillStore().contentFor(lower)))
+    // rule 36: the draft always holds the raw text - slash-skill expansion happens only at send time (llm/chat.ts)
+    setDraft(entry, t)
+  }, [])
+
+  // rule 36 candidate-pill tap: replace the trailing in-progress token with the canonical `/<name> ` (the trailing
+  // space is the submit-marker); the body is never pasted into the draft - expansion happens at send time only
+  const onCompleteSkill = useCallback((name: string) => {
+    const entry = getEntry(runtime.currentProjectId, runtime.currentConversationId)
+    if (!entry) return
+    const next = completeTrailingSlash(entry.draft, name)
+    if (next !== null) setDraft(entry, next)
   }, [])
 
   const openModelSwitcher = async () => {
@@ -497,7 +506,7 @@ export function ChatScreen({ navigation }: NavProps) {
         listRef={listRef}
       />
 
-      <SkillHintStrip draftKey={boundSessionKey} />
+      <SkillHintStrip draftKey={boundSessionKey} onComplete={onCompleteSkill} />
 
       <View style={[styles.inputWrap, { marginBottom: keyboardLift, paddingBottom: insets.bottom }]}>
         <View pointerEvents="none" style={styles.indicatorFloat}>

@@ -1,5 +1,5 @@
 /**
- * Global hosts: Snackbar (success light toasts) + problem-notice confirm dialog.
+ * Global hosts: Snackbar (success light toasts) + problem-notice confirm dialog + hidden EvalHost (run_javascript WebViews).
  * Mounted under the RootNavigator.
  * (Provider/model selection = the ModelPicker full-screen page; write confirmation moved inline into tool cards, the dialog host has been removed)
  */
@@ -13,6 +13,7 @@ import { AppDialog } from "../components/app-dialog"
 import { DialogButton } from "../components/dialog-button"
 import { dialogCompact } from "../components/dialog-compact"
 import { dialogLiftStyle, useKeyboardLift } from "../use-keyboard-lift"
+import { EvalHost } from "./eval-host"
 
 export function GlobalHosts() {
   const toast = useSnapshot(toastState)
@@ -46,6 +47,7 @@ export function GlobalHosts() {
           </DialogButton>
         </AppDialog.Actions>
       </AppDialog>
+      <EvalHost />
     </>
   )
 }

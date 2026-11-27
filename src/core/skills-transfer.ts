@@ -5,8 +5,8 @@
  * An import can therefore never introduce a token that the draft scanner could not type.
  *
  * Matching mirrors prompts: id hit → update; free id → createWithId; absent → create. A name colliding with a
- * different skill is an entry-level error (skipped row), never renamed. Expanded text in old drafts/messages
- * is untouched — a rename/delete/overwrite only changes future matching. Timestamps are not exported.
+ * different skill is an entry-level error (skipped row), never renamed. Text already written into messages is
+ * untouched — a rename/delete/overwrite only changes future (send-time) matching. Timestamps are not exported.
  */
 import { z } from "zod"
 import { kSkillStore, SKILL_NAME_MAX, SKILL_NAME_RE } from "./skills"
