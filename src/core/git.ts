@@ -11,6 +11,7 @@
 import {
   ensureRepo,
   close as closeRepo,
+  status as sdkStatus,
   upload as sdkUpload,
   sync as sdkSync,
   forceSync as sdkForceSync,
@@ -18,10 +19,12 @@ import {
   lsRemote as sdkLsRemote,
   GitOpError,
   type BranchInfo,
+  type GitStatus,
   type SyncResult,
   type UploadResult,
 } from "react-native-pocket-git"
 import { projectRoot } from "./projects"
+import { exists, joinPath } from "./fs"
 import { loadConfig, setPreferences, writeConfig, flushConfigNow, CONFIG_DOC_KIND, type GitSpec, type ProjectConfigSpec } from "./config"
 import { kGitCredentialStore } from "./git-credentials"
 import { kGitOptions, gitKnownHostsPath, DEFAULT_GIT_OPTIONS } from "./git-options"
@@ -63,6 +66,26 @@ export function releaseGitHandle(projectId: string): void {
   if (!h) return
   handles.delete(projectId)
   void closeRepo(h).catch(() => 0)
+}
+
+export type { GitStatus }
+
+/**
+ * Working-tree status for read-only probes (the Files page diff badges). Never lazily creates the
+ * repository (rule 34: repos appear on first upload/sync/clone only) - a project without .git throws.
+ */
+export async function projectGitStatus(projectId: string): Promise<GitStatus> {
+  // The .git probe stays outside the try: "this project has no repository" is an ordinary answer, not a failure to log.
+  if (!(await exists(joinPath(projectRoot(projectId), ".git")))) {
+    throw new Error("No git repository for this project.")
+  }
+  try {
+    const handle = await ensureHandle(projectId)
+    return await sdkStatus(handle)
+  } catch (err) {
+    logGitFailure("status", projectId, err)
+    throw err
+  }
 }
 
 async function transportFields(credId?: string | null) {

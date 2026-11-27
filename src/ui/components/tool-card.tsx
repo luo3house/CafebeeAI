@@ -58,6 +58,7 @@ export const NAME_LABEL: Record<MessagePartToolCall["name"], string> = {
   edit_file: "Edit file",
   download_file: "Download file",
   show_form: "Show form",
+  run_javascript: "Run JavaScript",
 }
 
 const STATUS_META: Record<NonNullable<MessagePartToolCall["status"]>, { icon: string; label: string }> = {
@@ -109,6 +110,8 @@ export function ToolCard({
   const openDetail = (indicator: string) => navigation.navigate("ToolDetail", { part, indicator })
 
   if (part.name === "show_form") return <FormToolCard part={part} interactive={interactive} />
+
+  if (part.name === "run_javascript") return <RunJsToolCard part={part} interactive={interactive} />
 
   if (part.name === "download_file") {
     return <DownloadToolCard part={part} interactive={interactive} debugPending={debugDownloadPending} debugProgress={debugDownloadProgress} />
@@ -211,7 +214,7 @@ function WriteToolCard({ part, interactive, debugPending }: { part: MessagePartT
   const flowSnap = useSnapshot(toolflow)
   const [preview, setPreview] = useState(false)
   const openDetail = (indicator: string) => navigation.navigate("ToolDetail", { part, indicator })
-  const realPending = flowSnap.pending.find((p) => p.toolCallId === part.id && p.tool !== "download_file")
+  const realPending = flowSnap.pending.find((p) => p.toolCallId === part.id && (p.tool === "write_file" || p.tool === "edit_file"))
   const pending = realPending ?? debugPending
   const isDebug = !realPending && !!debugPending
 
@@ -528,6 +531,113 @@ function DownloadToolCard({
           Progress: {formatBytes(received)} / {total > 0 ? formatBytes(total) : "?"}
         </Text>
       ) : null}
+      {part.result ? (
+        <Text style={[cardFonts(theme).line, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+          Result: {stripParenthetical(part.result)}
+        </Text>
+      ) : null}
+      {part.error ? (
+        <Text style={[cardFonts(theme).line, { color: theme.colors.error }]} numberOfLines={1}>
+          Error: {part.error}
+        </Text>
+      ) : null}
+    </View>
+  )
+}
+
+/**
+ * run_javascript hub card: pending = [Reject][Approve] (Approve executes the frozen code snapshot);
+ * the title/detail tap is the unified ToolDetail screen like every other card (a pending eval carries the
+ * "The code runs after approval." approvalNote there - there is NO code preview dialog);
+ * Done = plain "Done" (no detail suffix - the result lives in the Result row / ToolDetail).
+ * The `Code:` row is this card's one-line parameters echo (first non-empty line of the code), like `Target: <path>`.
+ */
+function RunJsToolCard({ part, interactive }: { part: MessagePartToolCall; interactive: boolean }) {
+  const theme = useTheme()
+  const navigation = useNavigation<any>()
+  const flowSnap = useSnapshot(toolflow)
+  const pending = flowSnap.pending.find((p) => p.toolCallId === part.id && p.tool === "run_javascript")
+
+  const codeArg = typeof part.args.code === "string" ? part.args.code : ""
+  const codeLine = codeArg.split("\n").find((l) => l.trim().length > 0)?.trim() ?? ""
+  const approvalNote = pending ? "The code runs after approval." : undefined
+  const openDetail = (indicator: string) => navigation.navigate("ToolDetail", { part, indicator, approvalNote })
+
+  const titleRow = (statusIcon: string, statusLabel: string, statusColor: string) => (
+    <View style={styles.titleRow}>
+      <View style={styles.metaRow}>
+        <Icon source="language-javascript" size={14} color={theme.colors.onSurfaceVariant} />
+        <Text style={[cardFonts(theme).name, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+          {NAME_LABEL.run_javascript}
+        </Text>
+      </View>
+      <View style={styles.metaRow}>
+        <Icon source={statusIcon} size={14} color={statusColor} />
+        <Text style={[cardFonts(theme).status, { color: statusColor }]}>{statusLabel}</Text>
+      </View>
+    </View>
+  )
+
+  const detailRows = codeLine ? (
+    <Text style={[cardFonts(theme).line, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
+      Code: {codeLine}
+    </Text>
+  ) : null
+
+  // Awaiting confirmation on the newest record: title + detail rows tap into the unified ToolDetail screen (with the
+  // approval note); buttons stand independently outside (prevents double event delivery) and settle at a single click.
+  if (pending && interactive) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.surfaceVariant }]}>
+        <AppPressable onPress={() => openDetail(AWAITING_META.label)}>
+          {titleRow(AWAITING_META.icon, AWAITING_META.label, theme.colors.onSurfaceVariant)}
+          {detailRows}
+        </AppPressable>
+        <View style={styles.btnRow}>
+          <TagButton
+            label="Reject"
+            tone="danger"
+            onPress={() => {
+              const p = pending
+              if (!p) return
+              resolveWriteConfirmation(p.id, false)
+            }}
+          />
+          <TagButton
+            label="Approve"
+            onPress={() => {
+              const p = pending
+              if (!p) return
+              resolveWriteConfirmation(p.id, true)
+            }}
+          />
+        </View>
+      </View>
+    )
+  }
+
+  // Awaiting confirmation but not on the newest record (theoretically should not happen): no buttons, keep only the status row
+  if (pending) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.surfaceVariant }]}>
+        <AppPressable onPress={() => openDetail(AWAITING_META.label)}>
+          {titleRow(AWAITING_META.icon, AWAITING_META.label, theme.colors.onSurfaceVariant)}
+        </AppPressable>
+        {detailRows}
+      </View>
+    )
+  }
+
+  // Running / terminal: the ordinary one-line tool card; user_cancelled-class errors display "Cancelled";
+  // Done is plain "Done" (the fixed label vocabulary - no detail suffix for this tool).
+  const statusColor = part.status === "error" || part.status === "rejected" ? theme.colors.error : theme.colors.onSurfaceVariant
+  const statusMeta = part.status ? STATUS_META[part.status] : STATUS_META.running
+  const statusText = isCancelledError(part) ? "Cancelled" : statusMeta.label
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.colors.surfaceVariant }]}>
+      <AppPressable onPress={() => openDetail(statusText)}>{titleRow(statusMeta.icon, statusText, statusColor)}</AppPressable>
+      {detailRows}
       {part.result ? (
         <Text style={[cardFonts(theme).line, { color: theme.colors.onSurfaceVariant }]} numberOfLines={1}>
           Result: {stripParenthetical(part.result)}

@@ -20,6 +20,7 @@ export function AppPressable({
   onPress,
   onLongPress,
   disabled,
+  hitSlop,
   children,
   ...rest
 }: AppPressableProps) {
@@ -47,6 +48,7 @@ export function AppPressable({
     >
       <Pressable
         ref={innerRef}
+        hitSlop={hitSlop}
         onPress={disabled ? undefined : onPress}
         onLongPress={disabled ? undefined : onLongPress}
         onPressIn={handlePressIn}
