@@ -4,7 +4,9 @@
  * scope locked to the Project directory, the git repository internals (`.git`) are off-limits (all other hidden files/dirs are allowed;
  * app state lives outside the Project in project-meta/, so nothing else needs reserving);
  * write_file / edit_file / download_file go through user confirmation (toolflow two-layer approval: app-level auto-pass / per-card confirmation);
- * reads above 64KB are truncated; read/edit use the text whitelist;
+ * reads above 64KB are truncated; read/edit/search/show_form gate on CONTENT (a NUL probe on the
+ * already-decoded text, see core/file-sniff.ts) rather than an extension whitelist, with pre-read
+ * size caps (8 MB read / 512 KB edit) bounding the cost of deciding;
  * download_file fetches only AFTER approval: a plain http/https GET streamed straight to cache staging by react-native-blob-util
  * (no JS memory), redirects followed under the library's own cap, 2xx required, 50MB hard limit, 300s no-data stall watchdog
  * (the watchdog bites only the request - the human wait before it stays unbounded).
@@ -20,7 +22,8 @@ import ReactNativeBlobUtil from "react-native-blob-util"
 import type { ToolCallKind } from "../core/chats"
 import { joinPath, readText, listDir, writeText, exists, isDirectory, statOf, moveInto, unlink } from "../core/fs"
 import { projectRoot } from "../core/projects"
-import { normalizeRelativePath, isTextLike, matchGlob, RESERVED_SEGMENTS } from "../core/paths"
+import { normalizeRelativePath, isLikelyBinaryExtension, matchGlob, RESERVED_SEGMENTS } from "../core/paths"
+import { detectContentKind, contentRejectionMessage } from "../core/file-sniff"
 import { stageDownloadTmp } from "../core/import-export"
 import {
   requestWriteConfirmation,
@@ -35,6 +38,10 @@ import { EVAL_LIMITS } from "./eval-doc"
 import { FORM_LIMITS, formatBytes, hasFileInputTag, utf8ByteLength } from "./form-doc"
 
 export const MAX_READ_BYTES = 64 * 1024
+/** Pre-read caps: the content gate runs AFTER decoding, so the ceiling bounds how much a doomed read can cost. */
+export const MAX_READ_FILE_BYTES = 8 * 1024 * 1024
+/** edit_file reads the WHOLE file and rewrites it; keep it aligned with the Files page's 512 KB edit cap. */
+export const MAX_EDIT_FILE_BYTES = 512 * 1024
 const MAX_WALK_DEPTH = 4
 const MAX_LIST_ENTRIES = 500
 const MAX_SEARCH_FILES = 500
@@ -57,6 +64,18 @@ export function resolveToolPath(projectId: string, relPath: string): string {
     throw new Error(`Path is reserved and cannot be accessed by tools: ${relPath}`)
   }
   return joinPath(projectRoot(projectId), normalized)
+}
+
+/**
+ * Shared pre-read cap check. Throws nothing: callers turn a non-null result into their own tool error.
+ * The content gate can only run on decoded text, so this is the only thing standing between an
+ * arbitrary 200 MB file and `readText` (a truncating read would have to load everything first).
+ */
+async function oversizeRejection(abs: string, cap: number, verb: "read" | "edit"): Promise<Record<string, unknown> | null> {
+  const st = await statOf(abs)
+  const size = Number(st?.size ?? 0)
+  if (!Number.isFinite(size) || size <= cap) return null
+  return { ok: false, error: `File too large to ${verb} (over ${formatBytes(cap)}): check it with list_files or search_files instead` }
 }
 
 export interface ToolExecContext {
@@ -151,7 +170,7 @@ export function buildTools(projectId: string): ToolDef[] {
     {
       name: "read_file",
       description:
-        "Read the text content of a file inside the Project workspace. Every line is prefixed with its line number (use start_line/end_line to read a range). Files larger than 64KB are truncated. Use it to gather context before answering or to quote file content.",
+        "Read the text content of a file inside the Project workspace. Every line is prefixed with its line number (use start_line/end_line to read a range). Files larger than 64KB are truncated; files over 8 MB are refused. Content decides whether a file is text (a NUL probe), so a binary file is refused regardless of its name. Use it to gather context before answering or to quote file content.",
       parameters: {
         type: "object",
         properties: {
@@ -167,8 +186,11 @@ export function buildTools(projectId: string): ToolDef[] {
         const abs = resolveToolPath(projectId, path)
         if (!(await exists(abs))) return { ok: false, error: `File not found: ${path}` }
         if (await isDirectory(abs)) return { ok: false, error: `Path is a directory, not a file: ${path}` }
-        if (!isTextLike(path)) return { ok: false, error: `Cannot read binary file: ${path}` }
+        const tooLarge = await oversizeRejection(abs, MAX_READ_FILE_BYTES, "read")
+        if (tooLarge) return tooLarge
         const text = await readText(abs)
+        const kind = detectContentKind(text)
+        if (kind !== "text") return { ok: false, error: contentRejectionMessage(kind, path, "read") }
         if (text.length === 0) return { ok: true, content: "" }
         const lines = text.split("\n")
         const startArg = asInt(args.start_line)
@@ -286,7 +308,8 @@ export function buildTools(projectId: string): ToolDef[] {
         for (const rel of state.out) {
           if (truncated) break
           if (include && !matchGlob(include, rel)) continue
-          if (!isTextLike(rel)) continue
+          // Extension may only say "no need to look" - a text file without a known extension (`Makefile`, scripts) must still be searched.
+          if (isLikelyBinaryExtension(rel)) continue
           const abs = resolveToolPath(projectId, rel)
           try {
             const st = await statOf(abs)
@@ -301,6 +324,8 @@ export function buildTools(projectId: string): ToolDef[] {
           } catch {
             continue
           }
+          // Content decides (silently skipped, like before): a PNG renamed to .txt must not be grepped.
+          if (detectContentKind(text) !== "text") continue
           if (text.length > MAX_SEARCH_FILE_BYTES) continue
           scannedChars += text.length
           if (scannedChars > MAX_SEARCH_TOTAL_CHARS) {
@@ -379,7 +404,7 @@ export function buildTools(projectId: string): ToolDef[] {
     {
       name: "edit_file",
       description:
-        "Edit an existing text file by exact string replacement (old_string -> new_string). old_string must match the file content exactly; if it appears multiple times, either provide more surrounding context to make it unique or set replace_all. Prefer this over write_file for partial edits. The user is asked to confirm before the edit is applied (skipped when auto-approval is enabled).",
+        "Edit an existing text file by exact string replacement (old_string -> new_string). old_string must match the file content exactly; if it appears multiple times, either provide more surrounding context to make it unique or set replace_all. Prefer this over write_file for partial edits. Files over 512 KB are refused (use read_file + write_file instead). The user is asked to confirm before the edit is applied (skipped when auto-approval is enabled).",
       parameters: {
         type: "object",
         properties: {
@@ -402,8 +427,11 @@ export function buildTools(projectId: string): ToolDef[] {
           return { ok: false, error: `File not found: ${path}. Use write_file to create a new file.` }
         }
         if (await isDirectory(abs)) return { ok: false, error: `Path is a directory, not a file: ${path}` }
-        if (!isTextLike(path)) return { ok: false, error: `Cannot edit binary file: ${path}` }
+        const tooLarge = await oversizeRejection(abs, MAX_EDIT_FILE_BYTES, "edit")
+        if (tooLarge) return tooLarge
         const text = await readText(abs)
+        const kind = detectContentKind(text)
+        if (kind !== "text") return { ok: false, error: contentRejectionMessage(kind, path, "edit") }
         const count = countOccurrences(text, oldString)
         if (count === 0) return { ok: false, error: `No match found for old_string in: ${path}` }
         const replaceAll = args.replace_all === true
@@ -594,8 +622,9 @@ export function buildTools(projectId: string): ToolDef[] {
           const abs = resolveToolPath(projectId, relPath)
           if (!(await exists(abs))) return { ok: false, error: `File not found: ${relPath}` }
           if (await isDirectory(abs)) return { ok: false, error: `Path is a directory, not a file: ${relPath}` }
-          if (!isTextLike(relPath)) return { ok: false, error: `Not an HTML file: ${relPath}` }
           html = await readText(abs)
+          const kind = detectContentKind(html)
+          if (kind !== "text") return { ok: false, error: contentRejectionMessage(kind, relPath, "read") }
           sizeBytes = utf8ByteLength(html)
           if (sizeBytes > FORM_LIMITS.maxHtmlFileBytes) {
             return {
