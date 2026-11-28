@@ -54,15 +54,24 @@ export function sanitizeFilename(name: string): string {
  */
 export const RESERVED_SEGMENTS = new Set([".git"])
 
-const TEXT_EXTENSIONS = new Set([
+/**
+ * Extensions that merely HINT "this is text". **This is not a gate** - whether a file may be fed to
+ * the model is decided by its content (`core/file-sniff.ts`), because a whitelist can never be
+ * complete (it used to reject `Makefile`, extension-less scripts and `.svg`, while happily passing
+ * a PNG renamed to `.md`). Two consumers remain, both name-only by nature: FilePreview's layout
+ * pick and `mimeForFile`'s text/plain layer.
+ */
+export const TEXT_EXTENSIONS = new Set([
   ".txt", ".md", ".markdown", ".json", ".yaml", ".yml", ".xml", ".toml", ".ini", ".cfg", ".csv", ".tsv",
   ".html", ".htm", ".css", ".scss", ".less", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
   ".py", ".pyw", ".java", ".go", ".rs", ".c", ".h", ".cpp", ".hpp", ".cc", ".cs", ".sh", ".bash", ".zsh",
   ".sql", ".php", ".rb", ".swift", ".kt", ".kts", ".lua", ".pl", ".r", ".dart", ".jl", ".vue", ".svelte",
-  ".env", ".log", ".gitignore", ".dockerfile", "dockerfile",
+  // SVG is XML text (it used to sit in MIME_TYPES but not here, so read_file refused every .svg)
+  ".svg", ".env", ".log", ".gitignore", ".dockerfile", "dockerfile",
 ])
 
-export function isTextLike(name: string): boolean {
+/** Name-level "does this look like text" hint - NEVER a content gate. See the comment on TEXT_EXTENSIONS. */
+export function isTextExtension(name: string): boolean {
   const lower = name.toLowerCase()
   if (TEXT_EXTENSIONS.has(lower)) return true
   const idx = lower.lastIndexOf(".")
@@ -87,16 +96,35 @@ const MIME_TYPES: Record<string, string> = {
 }
 
 /**
+ * Extensions we are confident are NOT worth reading during a content search (images / media /
+ * office / archives). Derived from MIME_TYPES so a future addition stays in sync, MINUS `.svg`,
+ * which is XML text and must still be searchable. This list may only say "no need to look",
+ * never "must not be read": anything absent from it is decided by actual content
+ * (`core/file-sniff.ts`), so extension-less files and unknown extensions are no longer lost.
+ */
+const NON_TEXT_EXTENSIONS = new Set(
+  Object.keys(MIME_TYPES).filter((ext) => ext !== ".svg")
+)
+
+/** False only for an extension we are sure is binary-shaped; everything else deserves a content read. */
+export function isLikelyBinaryExtension(name: string): boolean {
+  return NON_TEXT_EXTENSIONS.has(extname(name))
+}
+
+/**
  * MIME resolution, four layers in priority order:
  * 1. MIME_TYPES (office/media quirks; mrmime strips vendor `vnd.*`/`x-*` types, so keep this as an override table);
- * 2. text-whitelist extensions -> text/plain (also fixes mrmime mapping `.ts` to the MPEG transport stream `video/mp2t`);
+ * 2. text-extension hints -> text/plain (also fixes mrmime mapping `.ts` to the MPEG transport stream `video/mp2t`);
  * 3. mrmime (standard mime-db types: images/audio/video/long-tail);
  * 4. application/octet-stream.
+ * Name-only and synchronous by design: the external-open path is the sole consumer, and a file whose
+ * extension lies keeps `application/octet-stream` (see the file-sniff header for why there is no
+ * content sniffing / magic-number table in this app).
  */
 export function mimeForFile(name: string): string {
   const known = MIME_TYPES[extname(name)]
   if (known) return known
-  if (isTextLike(name)) return "text/plain"
+  if (isTextExtension(name)) return "text/plain"
   return lookup(name) ?? "application/octet-stream"
 }
 

@@ -3,18 +3,23 @@
  * In-app preview supports Markdown/TXT (source split by block via splitMarkdownBlocks and rendered through
  * MarkdownBlock inside a FlashList so multi-MB files stay virtualized) and images (`.jpg/.jpeg/.png`,
  * contain-fitted native Image view).
- * CODE-LIKE files (the rest of the isTextLike whitelist - js/tsx/yaml/json/.../.env/Dockerfile) are NOT
+ * CODE-LIKE files (the rest of the text-extension hints - js/tsx/yaml/json/.../.env/Dockerfile) are NOT
  * previewed anymore: they render the unknown-type centered layout with the editable-file icon
  * (file-edit-outline) and an inline [Edit] button next to [Open with...]. Edit opens the shared TextEditor
  * page (uncontrolled input, validate defaults to pass, save = atomicWriteText back to the same path + a
  * light "Saved" snackbar); this page re-reads the file on focus return.
+ * The extension is only a LAYOUT hint here; the one content decision is the md/txt branch, which reads the
+ * file anyway and refuses to render it as text when the decoded content is binary (core/file-sniff.ts),
+ * degrading to the `binary` notice instead of painting mojibake. Code-like files are left alone - their
+ * layout already promises nothing about the content.
  * Two separate caps, both statOf'd at page entry (the editor is a lightweight tool, opening is the gate -
  * pasting beyond the cap mid-edit is the user's own risk, nothing is re-checked at save):
  * preview cap 5 MB (md/txt/images) vs edit cap 512 KB (md/txt also gate the menu's Edit item -
  * over the cap the notice keeps only [Open with...] with "File too large to edit (over 512 KB).").
  * The header three-dot menu: md/txt get "Text wrap" (horizontal scroll <-> soft wrap) plus "Edit" when
  * within the edit cap; every file gets "Open with..." (openFileExternally), so previewing never blocks
- * external opening. Unsupported type / over cap / read failure: centered notice + "Open with..." button.
+ * external opening. Unsupported type / binary content / over cap / read failure: centered notice +
+ * "Open with..." button.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Image, StyleSheet, Text, View } from "react-native"
@@ -25,7 +30,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { FlashList } from "@shopify/flash-list"
 import type { RootStackParamList } from "../../../app/app.ui.navigator"
 import { atomicWriteText, readText, statOf } from "../../../core/fs"
-import { extname, isTextLike } from "../../../core/paths"
+import { extname, isTextExtension } from "../../../core/paths"
+import { detectContentKind } from "../../../core/file-sniff"
 import { openFileExternally } from "../../../core/import-export"
 import { MarkdownBlock, splitMarkdownBlocks } from "../../components/markdown"
 import { showNotice } from "../../../state/notice"
@@ -48,6 +54,8 @@ type Phase =
   | { kind: "read-error" }
   | { kind: "empty" }
   | { kind: "image" }
+  /** md/txt whose DECODED content turned out to be binary: the extension was the only thing claiming text */
+  | { kind: "binary" }
   | { kind: "ready"; units: string[] }
 
 export function FilePreviewScreen({ navigation, route }: Props) {
@@ -55,7 +63,7 @@ export function FilePreviewScreen({ navigation, route }: Props) {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
   const ext = extname(name)
-  const previewKind: PreviewKind = TEXT_PREVIEW_EXTENSIONS.has(ext) ? "text" : IMAGE_PREVIEW_EXTENSIONS.has(ext) ? "image" : isTextLike(name) ? "code" : null
+  const previewKind: PreviewKind = TEXT_PREVIEW_EXTENSIONS.has(ext) ? "text" : IMAGE_PREVIEW_EXTENSIONS.has(ext) ? "image" : isTextExtension(name) ? "code" : null
   const [phase, setPhase] = useState<Phase>(() => (previewKind ? { kind: "loading" } : { kind: "unsupported" }))
   const [sizeBytes, setSizeBytes] = useState<number | null>(null)
   const [wrap, setWrap] = useState(false)
@@ -115,6 +123,12 @@ export function FilePreviewScreen({ navigation, route }: Props) {
       try {
         const text = await readText(path)
         if (!alive) return
+        // The only content decision on this page: a `.md`/`.txt` may still be binary. Refuse to paint it
+        // as text and degrade to the binary notice (the code-like layout promises nothing about content).
+        if (detectContentKind(text) !== "text") {
+          setPhase({ kind: "binary" })
+          return
+        }
         const units = splitMarkdownBlocks(text)
         setPhase(units.length ? { kind: "ready", units } : { kind: "empty" })
       } catch {
@@ -173,6 +187,8 @@ export function FilePreviewScreen({ navigation, route }: Props) {
         return phase.cap === "edit"
           ? { icon: "file-edit-outline", text: "File too large to edit (over 512 KB)." }
           : { icon: "file-document-outline", text: "File too large to preview (over 5 MB)." }
+      case "binary":
+        return { icon: "alert-outline", text: "This file contains binary data and cannot be previewed as text." }
       case "read-error":
         return { icon: "eye-off-outline", text: "Cannot read this file." }
       default:
@@ -191,7 +207,7 @@ export function FilePreviewScreen({ navigation, route }: Props) {
         }}
       />
       <Menu visible={menuOpen} onDismiss={() => setMenuOpen(false)} anchor={menuPos}>
-        {previewKind === "text" ? (
+        {previewKind === "text" && phase.kind !== "binary" ? (
           <Menu.Item
             title={wrap ? "Text wrap: On" : "Text wrap: Off"}
             leadingIcon="wrap"
@@ -201,7 +217,7 @@ export function FilePreviewScreen({ navigation, route }: Props) {
             }}
           />
         ) : null}
-        {previewKind === "text" && canEdit ? (
+        {previewKind === "text" && phase.kind !== "binary" && canEdit ? (
           <Menu.Item
             title="Edit"
             leadingIcon="pencil-outline"
